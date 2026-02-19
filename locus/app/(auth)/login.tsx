@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -6,11 +6,54 @@ import {
   Pressable,
   Platform,
   Image,
+  Alert,
+  KeyboardAvoidingView,
+  TextInput,
 } from "react-native";
 import { useRouter } from "expo-router";
 
+//Images
+
+
+// Styles
+import { styles } from "./login.styles";
+
 export default function LoginScreen() {
   const router = useRouter();
+
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+
+  // validação básica (só pra UI)
+  const emailOk = useMemo(() => {
+    const e = email.trim().toLowerCase();
+    return e.length > 3 && e.includes("@") && e.includes(".");
+  }, [email]);
+
+  const passwordOk = useMemo(() => password.length >= 6, [password]);
+
+  const handleEmailLogin = () => {
+    const e = email.trim();
+
+    if (!emailOk) {
+      Alert.alert("Email inválido", "Digite um email válido para continuar.");
+      return;
+    }
+
+    if (!passwordOk) {
+      Alert.alert(
+        "Senha inválida",
+        "A senha deve ter pelo menos 6 caracteres.",
+      );
+      return;
+    }
+
+    // por enquanto: modo placeholder
+    console.log("Email login (placeholder):", e);
+
+    // só pra você seguir testando telas (tirar depois)
+    router.replace("/(tabs)");
+  };
 
   const handleGoogle = () => {
     // depois a gente pluga o Google de verdade
@@ -23,9 +66,67 @@ export default function LoginScreen() {
   };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Locus</Text>
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+    >
+      <Image
+        source={require("../../assets/images/logoCompleta.png")}
+        resizeMode="contain"
+        style={styles.googleIcon}
+      />
       <Text style={styles.subtitle}>Entre para continuar</Text>
+
+      {/*Login com Email */}
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>Entrar com Email:</Text>
+
+        <View style={styles.inputWrap}>
+          <Text style={styles.label}>Email</Text>
+          <TextInput
+            value={email}
+            onChangeText={setEmail}
+            placeholder="seuemail@exemplo.com"
+            placeholderTextColor={"#999"}
+            autoCapitalize="none"
+            style={styles.input}
+          />
+        </View>
+
+        <View style={styles.inputWrap}>
+          <Text style={styles.label}>Senha</Text>
+          <TextInput
+            value={password}
+            onChangeText={setPassword}
+            placeholder="••••••••"
+            placeholderTextColor="#999"
+            secureTextEntry
+            style={styles.input}
+          />
+        </View>
+
+        <Pressable
+          style={[
+            styles.emailButton,
+            emailOk && passwordOk
+              ? styles.emailButtonEnabled
+              : styles.emailButtonDisabled,
+          ]}
+          onPress={handleEmailLogin}
+        >
+          <Text style={styles.emailButtonText}>Entrar</Text>
+        </Pressable>
+
+        <Pressable onPress={() => console.log("Criar conta (placeholder)")}>
+          <Text style={styles.link}>Criar conta</Text>
+        </Pressable>
+      </View>
+
+      <View style={styles.dividerRow}>
+        <View style={styles.dividerLine} />
+        <Text style={styles.dividerText}>ou</Text>
+        <View style={styles.dividerLine} />
+      </View>
 
       <Pressable style={[styles.button, styles.google]} onPress={handleGoogle}>
         <Image
@@ -38,11 +139,11 @@ export default function LoginScreen() {
 
       {Platform.OS === "ios" && (
         <Pressable style={[styles.button, styles.apple]} onPress={handleApple}>
-            <Image
-          source={require("../../assets/images/apple.png")}
-          resizeMode="contain"
-          style={styles.googleIcon}
-        />
+          <Image
+            source={require("../../assets/images/apple.png")}
+            resizeMode="contain"
+            style={styles.googleIcon}
+          />
           <Text style={styles.appleText}>Continuar com Apple</Text>
         </Pressable>
       )}
@@ -58,38 +159,6 @@ export default function LoginScreen() {
       <Text style={styles.helper}>
         (Apple aparece só no iPhone. Google/Apple vamos conectar depois.)
       </Text>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    padding: 24,
-    justifyContent: "center",
-    backgroundColor: "#FFFFFfff",
-  },
-  title: { fontSize: 34, fontWeight: "800", marginBottom: 6, color: "#5a9f78" },
-  subtitle: { fontSize: 14, opacity: 0.7, marginBottom: 24, color: "#5b5b5b" },
-
-  button: {
-    height: 48,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 12,
-  },
-
-  icon: { marginRight: 10 },
-
-  google: { backgroundColor: "#f8f8f6", display: "flex", flexDirection: "row" },
-  googleIcon: { width: 30, height: 30, marginRight: 10 },
-  apple: { backgroundColor: "#f8f8f6", display: "flex", flexDirection: "row" },
-  dev: { backgroundColor: "#EAEAEA" },
-
-  buttonText: { fontWeight: "700" },
-  appleText: { fontWeight: "700" },
-  devText: { color: "#111111", fontWeight: "700" },
-
-  helper: { marginTop: 8, fontSize: 12, opacity: 0.6 },
-});
