@@ -5,11 +5,11 @@ export const styles = StyleSheet.create({
     flex: 1,
     padding: 24,
     justifyContent: "center",
-    backgroundColor: "#FFFFFfff",
+    backgroundColor: "#FFFFFF",
   },
 //   title: { fontSize: 34, fontWeight: "800", marginTop: 0, marginBottom: 50, margin:"auto", color: "#5a9f78" },
 
-  logo: {width: 200},
+  logo: {width: 124, height: 124, alignSelf: "center", marginBottom: 20, marginTop: 20 },
 
   subtitle: { fontSize: 14, opacity: 0.7, marginBottom: 8, color: "#5b5b5b" },
 
@@ -72,9 +72,9 @@ export const styles = StyleSheet.create({
 
   dividerText: { marginHorizontal: 10, fontSize: 12, opacity: 0.6 },
 
-  google: { backgroundColor: "#f8f8f6", display: "flex", flexDirection: "row" },
-  googleIcon: { width: 30, height: 30, marginRight: 10 },
-  apple: { backgroundColor: "#f8f8f6", display: "flex", flexDirection: "row" },
+  google: { backgroundColor: "#f8f8f6", display: "flex", flexDirection: "row", paddingHorizontal: 20, justifyContent: "center", alignItems: "center" },
+  Icon: { width: 30, height: 30, marginRight: 10 },
+  apple: { backgroundColor: "#f8f8f6", display: "flex", flexDirection: "row", paddingHorizontal: 20, justifyContent: "center", alignItems: "center" },
   dev: { backgroundColor: "#EAEAEA" },
 
   buttonText: { fontWeight: "700" },

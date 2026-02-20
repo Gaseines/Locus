@@ -2,7 +2,6 @@ import React, { useMemo, useState } from "react";
 import {
   View,
   Text,
-  StyleSheet,
   Pressable,
   Platform,
   Image,
@@ -12,7 +11,9 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 
-//Images
+// Fire base
+import { signInWithEmailAndPassword } from "firebase/auth";
+import { Analytics } from "firebase/analytics";
 
 
 // Styles
@@ -73,7 +74,7 @@ export default function LoginScreen() {
       <Image
         source={require("../../assets/images/logoCompleta.png")}
         resizeMode="contain"
-        style={styles.googleIcon}
+        style={styles.logo}
       />
       <Text style={styles.subtitle}>Entre para continuar</Text>
 
@@ -132,7 +133,7 @@ export default function LoginScreen() {
         <Image
           source={require("../../assets/images/google-g.png")}
           resizeMode="contain"
-          style={styles.googleIcon}
+          style={styles.Icon}
         />
         <Text style={styles.buttonText}>Continuar com Google</Text>
       </Pressable>
@@ -142,7 +143,7 @@ export default function LoginScreen() {
           <Image
             source={require("../../assets/images/apple.png")}
             resizeMode="contain"
-            style={styles.googleIcon}
+            style={styles.Icon}
           />
           <Text style={styles.appleText}>Continuar com Apple</Text>
         </Pressable>
