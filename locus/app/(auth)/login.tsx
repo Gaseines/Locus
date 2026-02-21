@@ -13,7 +13,7 @@ import { useRouter } from "expo-router";
 
 // Fire base
 import { signInWithEmailAndPassword } from "firebase/auth";
-import { Analytics } from "firebase/analytics";
+import { auth } from "@/src/firebase";
 
 
 // Styles
@@ -49,11 +49,27 @@ export default function LoginScreen() {
       return;
     }
 
-    // por enquanto: modo placeholder
-    console.log("Email login (placeholder):", e);
-
-    // só pra você seguir testando telas (tirar depois)
+    try {
+     signInWithEmailAndPassword(auth, e, password);
     router.replace("/(tabs)");
+  } catch (err: any) {
+    const code = err?.code;
+
+    if (code === "auth/user-not-found") {
+      Alert.alert("Não encontrado", "Esse email não está cadastrado.");
+      return;
+    }
+    if (code === "auth/wrong-password") {
+      Alert.alert("Senha incorreta", "Confira sua senha e tente novamente.");
+      return;
+    }
+    if (code === "auth/invalid-email") {
+      Alert.alert("Email inválido", "Confira o formato do email.");
+      return;
+    }
+
+    Alert.alert("Erro ao entrar", err?.message ?? "Tente novamente.");
+  }
   };
 
   const handleGoogle = () => {
@@ -118,7 +134,7 @@ export default function LoginScreen() {
           <Text style={styles.emailButtonText}>Entrar</Text>
         </Pressable>
 
-        <Pressable onPress={() => console.log("Criar conta (placeholder)")}>
+        <Pressable onPress={() => router.push("/(auth)/register")}>
           <Text style={styles.link}>Criar conta</Text>
         </Pressable>
       </View>
