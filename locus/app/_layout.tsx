@@ -1,79 +1,85 @@
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, View } from "react-native";
-import {
-  DarkTheme,
-  DefaultTheme,
-  ThemeProvider,
-} from "@react-navigation/native";
 import { Stack, useRouter, useSegments } from "expo-router";
-import { StatusBar } from "expo-status-bar";
-import "react-native-reanimated";
-
 import { onAuthStateChanged, User } from "firebase/auth";
-import { auth } from "@/src/firebase";
-import { useColorScheme } from "@/hooks/use-color-scheme";
+import { doc, onSnapshot } from "firebase/firestore";
 
-export const unstable_settings = {
-  anchor: "(tabs)",
-};
-
-function LoadingScreen() {
-  return (
-    <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-      <ActivityIndicator size="large" />
-    </View>
-  );
-}
+import { auth, db } from "../src/firebase"; // ✅ ajuste o caminho se precisar
 
 export default function RootLayout() {
-  const colorScheme = useColorScheme();
   const router = useRouter();
   const segments = useSegments();
 
+  const [authLoading, setAuthLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
-  const [authReady, setAuthReady] = useState(false);
 
-  // 1) escuta o Firebase e descobre se está logado
+  const [usuarioLoading, setUsuarioLoading] = useState(false);
+  const [usuarioDoc, setUsuarioDoc] = useState<any | null>(null);
+
+  // 1) Auth
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => {
       setUser(u);
-      setAuthReady(true);
+      setAuthLoading(false);
     });
-
     return unsub;
   }, []);
 
-  // 2) decide para onde mandar o usuário (guard)
+  // 2) Firestore user doc
   useEffect(() => {
-    if (!authReady) return;
-
-    const inAuthGroup = segments[0] === "(auth)";
-
-    // Não logado e tentou acessar fora do auth -> manda pro login
-    if (!user && !inAuthGroup) {
-      router.replace("/login");
+    if (!user?.uid) {
+      setUsuarioDoc(null);
+      setUsuarioLoading(false);
       return;
     }
 
-    // Logado e está no auth -> manda pras tabs
-    if (user && inAuthGroup) {
-      router.replace("/");
+    setUsuarioLoading(true);
+    const ref = doc(db, "usuarios", user.uid);
+
+    const unsub = onSnapshot(
+      ref,
+      (snap) => {
+        setUsuarioDoc(snap.exists() ? snap.data() : null);
+        setUsuarioLoading(false);
+      },
+      () => {
+        setUsuarioDoc(null);
+        setUsuarioLoading(false);
+      }
+    );
+
+    return unsub;
+  }, [user?.uid]);
+
+  // 3) Guard de rotas
+  useEffect(() => {
+    if (authLoading) return;
+
+    const grupoAtual = segments[0]; // "(auth)" | "(onboarding)" | "(tabs)" ...
+    const estaNoAuth = grupoAtual === "(auth)";
+    const estaNoOnboarding = grupoAtual === "(onboarding)";
+
+    // não logado -> auth
+    if (!user) {
+      if (!estaNoAuth) router.replace("/(auth)/login");
+      return;
     }
-  }, [user, authReady, segments]);
 
-  return (
-    <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
-      {!authReady ? (
-        <LoadingScreen />
-      ) : (
-        <Stack>
-          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-          <Stack.Screen name="modal" options={{ presentation: "modal" }} />
-        </Stack>
-      )}
+    // logado mas ainda carregando doc
+    if (usuarioLoading) return;
 
-      <StatusBar style="auto" />
-    </ThemeProvider>
-  );
+    const onboardingConcluido = usuarioDoc?.onboardingConcluido === true;
+
+    // logado e precisa onboarding
+    if (!onboardingConcluido) {
+      if (!estaNoOnboarding) router.replace("/(onboarding)");
+      return;
+    }
+
+    // logado e onboarding ok -> tabs
+    if (estaNoAuth || estaNoOnboarding) {
+      router.replace("/(tabs)");
+    }
+  }, [authLoading, user, usuarioLoading, usuarioDoc, segments]);
+
+  return <Stack screenOptions={{ headerShown: false }} />;
 }

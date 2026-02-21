@@ -7,6 +7,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   TextInput,
+  ActivityIndicator,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
@@ -35,6 +36,8 @@ export default function RegisterScreen() {
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [generalError, setGeneralError] = useState<string | null>(null);
 
+  const [submitting, setSubmitting] = useState(false);
+
   const emailOk = useMemo(() => {
     const e = email.trim().toLowerCase();
     return e.length > 3 && e.includes("@") && e.includes(".");
@@ -51,7 +54,11 @@ export default function RegisterScreen() {
     return phoneDigits.length >= 10 && phoneDigits.length <= 11;
   }, [phoneDigits]);
 
+  const formOk = firstNameOk && lastNameOk && phoneOk && emailOk && passwordOk;
+
   const handleRegister = async () => {
+    if (submitting) return;
+
     const e = email.trim().toLowerCase();
     const f = firstName.trim();
     const l = lastName.trim();
@@ -87,41 +94,50 @@ export default function RegisterScreen() {
     }
 
     try {
+      setSubmitting(true);
+
       const cred = await createUserWithEmailAndPassword(auth, e, password);
 
-      // 1) salva nome no Auth (bom para mostrar rápido em UI)
-      const fullName = `${f} ${l}`.trim();
-      await updateProfile(cred.user, { displayName: fullName });
+      // 1) salva nome no Auth
+      const nomeCompleto = `${f} ${l}`.trim();
+      await updateProfile(cred.user, { displayName: nomeCompleto });
 
-      // 2) salva perfil completo no Firestore
-      await setDoc(doc(db, "users", cred.user.uid), {
-        firstName: f,
-        lastName: l,
-        fullName,
-        phone: phoneDigits.length ? phoneDigits : null,
+      // 2) salva perfil completo no Firestore (PT-BR)
+      await setDoc(doc(db, "usuarios", cred.user.uid), {
+        primeiroNome: f,
+        sobrenome: l,
+        nomeCompleto,
+        telefone: phoneDigits.length ? phoneDigits : null,
         email: e,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
+
+        // defaults do onboarding (pra manter tudo consistente)
+        onboardingConcluido: false,
+        onboardingPulado: false,
+        funcoes: { comprador: true, vendedor: false },
+        // preferencias: null, // opcional: pode omitir
+
+        criadoEm: serverTimestamp(),
+        atualizadoEm: serverTimestamp(),
       });
 
-      router.replace("/"); // melhor: deixa o guard decidir
+      // deixa o Auth Guard decidir (ele vai mandar pro onboarding)
+      router.replace("/");
     } catch (err: any) {
       const code = err?.code;
 
       if (code === "auth/email-already-in-use") {
         setEmailError("Esse email já está cadastrado. Tente entrar.");
-        return;
-      }
-      if (code === "auth/invalid-email") {
+      } else if (code === "auth/invalid-email") {
         setEmailError("Email inválido.");
-        return;
-      }
-      if (code === "auth/weak-password") {
+      } else if (code === "auth/weak-password") {
         setPasswordError("Senha fraca. Use pelo menos 6 caracteres.");
-        return;
+      } else if (code === "auth/network-request-failed") {
+        setGeneralError("Sem conexão. Verifique sua internet e tente novamente.");
+      } else {
+        setGeneralError("Não foi possível criar sua conta. Tente novamente.");
       }
-
-      setGeneralError("Não foi possível criar sua conta. Tente novamente.");
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -155,6 +171,7 @@ export default function RegisterScreen() {
             placeholderTextColor="#999"
             autoCapitalize="words"
             style={[styles.input, firstNameError ? styles.inputError : null]}
+            editable={!submitting}
           />
           {firstNameError ? (
             <Text style={styles.errorText}>{firstNameError}</Text>
@@ -175,6 +192,7 @@ export default function RegisterScreen() {
             placeholderTextColor="#999"
             autoCapitalize="words"
             style={[styles.input, lastNameError ? styles.inputError : null]}
+            editable={!submitting}
           />
           {lastNameError ? (
             <Text style={styles.errorText}>{lastNameError}</Text>
@@ -195,6 +213,7 @@ export default function RegisterScreen() {
             placeholderTextColor="#999"
             keyboardType="phone-pad"
             style={[styles.input, phoneError ? styles.inputError : null]}
+            editable={!submitting}
           />
           {phoneError ? <Text style={styles.errorText}>{phoneError}</Text> : null}
         </View>
@@ -215,6 +234,7 @@ export default function RegisterScreen() {
             autoCorrect={false}
             keyboardType="email-address"
             style={[styles.input, emailError ? styles.inputError : null]}
+            editable={!submitting}
           />
           {emailError ? <Text style={styles.errorText}>{emailError}</Text> : null}
         </View>
@@ -233,6 +253,7 @@ export default function RegisterScreen() {
             placeholderTextColor="#999"
             secureTextEntry
             style={[styles.input, passwordError ? styles.inputError : null]}
+            editable={!submitting}
           />
           {passwordError ? (
             <Text style={styles.errorText}>{passwordError}</Text>
@@ -242,18 +263,21 @@ export default function RegisterScreen() {
         <Pressable
           style={[
             styles.emailButton,
-            firstNameOk && lastNameOk && phoneOk && emailOk && passwordOk
-              ? styles.emailButtonEnabled
-              : styles.emailButtonDisabled,
+            formOk && !submitting ? styles.emailButtonEnabled : styles.emailButtonDisabled,
           ]}
           onPress={handleRegister}
+          disabled={!formOk || submitting}
         >
-          <Text style={styles.emailButtonText}>Criar conta</Text>
+          {submitting ? (
+            <ActivityIndicator />
+          ) : (
+            <Text style={styles.emailButtonText}>Criar conta</Text>
+          )}
         </Pressable>
 
         {generalError ? <Text style={styles.errorText}>{generalError}</Text> : null}
 
-        <Pressable onPress={() => router.back()}>
+        <Pressable onPress={() => router.back()} disabled={submitting}>
           <Text style={styles.link}>Voltar para o login</Text>
         </Pressable>
       </View>
