@@ -15,7 +15,6 @@ import { useRouter } from "expo-router";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth } from "@/src/firebase";
 
-
 // Styles
 import { styles } from "./login.styles";
 
@@ -24,6 +23,9 @@ export default function LoginScreen() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [emailError, setEmailError] = useState<string | null>(null);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [generalError, setGeneralError] = useState<string | null>(null);
 
   // validação básica (só pra UI)
   const emailOk = useMemo(() => {
@@ -33,43 +35,51 @@ export default function LoginScreen() {
 
   const passwordOk = useMemo(() => password.length >= 6, [password]);
 
-  const handleEmailLogin = () => {
+  const handleEmailLogin = async () => {
     const e = email.trim();
 
+    setEmailError(null);
+    setPasswordError(null);
+    setGeneralError(null);
+
     if (!emailOk) {
-      Alert.alert("Email inválido", "Digite um email válido para continuar.");
+      setEmailError("Digite um email válido.");
       return;
     }
 
     if (!passwordOk) {
-      Alert.alert(
-        "Senha inválida",
-        "A senha deve ter pelo menos 6 caracteres.",
-      );
+      setPasswordError("A senha deve ter pelo menos 6 caracteres.");
       return;
     }
 
     try {
-     signInWithEmailAndPassword(auth, e, password);
-    router.replace("/(tabs)");
-  } catch (err: any) {
-    const code = err?.code;
+      await signInWithEmailAndPassword(auth, e, password);
+      router.replace("/"); // melhor: deixa o guard decidir
+    } catch (err: any) {
+      const code = err?.code;
 
-    if (code === "auth/user-not-found") {
-      Alert.alert("Não encontrado", "Esse email não está cadastrado.");
-      return;
-    }
-    if (code === "auth/wrong-password") {
-      Alert.alert("Senha incorreta", "Confira sua senha e tente novamente.");
-      return;
-    }
-    if (code === "auth/invalid-email") {
-      Alert.alert("Email inválido", "Confira o formato do email.");
-      return;
-    }
+      // ✅ casos mais comuns (inclui versões novas do Firebase)
+      if (
+        code === "auth/user-not-found" ||
+        code === "auth/wrong-password" ||
+        code === "auth/invalid-credential" ||
+        code === "auth/invalid-login-credentials"
+      ) {
+        setGeneralError(
+          "Email ou senha incorretos. Se você não tem conta, crie uma agora!",
+        );
+        return;
+      }
 
-    Alert.alert("Erro ao entrar", err?.message ?? "Tente novamente.");
-  }
+      if (code === "auth/too-many-requests") {
+        setGeneralError(
+          "Muitas tentativas. Aguarde um pouco e tente novamente.",
+        );
+        return;
+      }
+
+      setGeneralError("Não foi possível entrar agora. Tente novamente.");
+    }
   };
 
   const handleGoogle = () => {
@@ -102,24 +112,42 @@ export default function LoginScreen() {
           <Text style={styles.label}>Email</Text>
           <TextInput
             value={email}
-            onChangeText={setEmail}
+            onChangeText={(t) => {
+              setEmail(t);
+              if (emailError) setEmailError(null);
+              if (generalError) setGeneralError(null);
+            }}
             placeholder="seuemail@exemplo.com"
-            placeholderTextColor={"#999"}
+            placeholderTextColor="#999"
             autoCapitalize="none"
-            style={styles.input}
+            autoCorrect={false}
+            keyboardType="email-address"
+            style={[styles.input, emailError ? styles.inputError : null]}
           />
+
+          {emailError ? (
+            <Text style={styles.errorText}>{emailError}</Text>
+          ) : null}
         </View>
 
         <View style={styles.inputWrap}>
           <Text style={styles.label}>Senha</Text>
           <TextInput
             value={password}
-            onChangeText={setPassword}
+            onChangeText={(t) => {
+              setPassword(t);
+              if (passwordError) setPasswordError(null);
+              if (generalError) setGeneralError(null);
+            }}
             placeholder="••••••••"
             placeholderTextColor="#999"
             secureTextEntry
-            style={styles.input}
+            style={[styles.input, passwordError ? styles.inputError : null]}
           />
+
+          {passwordError ? (
+            <Text style={styles.errorText}>{passwordError}</Text>
+          ) : null}
         </View>
 
         <Pressable
@@ -133,6 +161,11 @@ export default function LoginScreen() {
         >
           <Text style={styles.emailButtonText}>Entrar</Text>
         </Pressable>
+
+        {generalError ? (
+          <Text style={styles.errorText}>{generalError}</Text>
+        ) : null}
+
 
         <Pressable onPress={() => router.push("/(auth)/register")}>
           <Text style={styles.link}>Criar conta</Text>

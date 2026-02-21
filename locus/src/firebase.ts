@@ -1,8 +1,8 @@
 import { initializeApp, getApps } from "firebase/app";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { getAuth } from "firebase/auth";
-import { initializeAuth, getReactNativePersistence } from "firebase/auth/react-native";
-
+import { getFirestore } from "firebase/firestore";
+// @ts-ignore
+import { getAuth, initializeAuth, getReactNativePersistence } from "firebase/auth";
 
 const firebaseConfig = {
   apiKey: "AIzaSyC7BrgZJXM_tDZQfPB96ecT0wHe-eyebbs",
@@ -15,6 +15,7 @@ const firebaseConfig = {
 
 const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
 
+// ✅ persistência no AsyncStorage (mantém logado)
 export const auth = (() => {
   try {
     return initializeAuth(app, {
@@ -25,3 +26,5 @@ export const auth = (() => {
     return getAuth(app);
   }
 })();
+
+export const db = getFirestore(app);

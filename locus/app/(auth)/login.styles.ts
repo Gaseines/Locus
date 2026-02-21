@@ -7,9 +7,15 @@ export const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: "#FFFFFF",
   },
-//   title: { fontSize: 34, fontWeight: "800", marginTop: 0, marginBottom: 50, margin:"auto", color: "#5a9f78" },
+  //   title: { fontSize: 34, fontWeight: "800", marginTop: 0, marginBottom: 50, margin:"auto", color: "#5a9f78" },
 
-  logo: {width: 124, height: 124, alignSelf: "center", marginBottom: 20, marginTop: 20 },
+  logo: {
+    width: 124,
+    height: 124,
+    alignSelf: "center",
+    marginBottom: 20,
+    marginTop: 20,
+  },
 
   subtitle: { fontSize: 14, opacity: 0.7, marginBottom: 8, color: "#5b5b5b" },
 
@@ -72,9 +78,23 @@ export const styles = StyleSheet.create({
 
   dividerText: { marginHorizontal: 10, fontSize: 12, opacity: 0.6 },
 
-  google: { backgroundColor: "#f8f8f6", display: "flex", flexDirection: "row", paddingHorizontal: 20, justifyContent: "center", alignItems: "center" },
+  google: {
+    backgroundColor: "#f8f8f6",
+    display: "flex",
+    flexDirection: "row",
+    paddingHorizontal: 20,
+    justifyContent: "center",
+    alignItems: "center",
+  },
   Icon: { width: 30, height: 30, marginRight: 10 },
-  apple: { backgroundColor: "#f8f8f6", display: "flex", flexDirection: "row", paddingHorizontal: 20, justifyContent: "center", alignItems: "center" },
+  apple: {
+    backgroundColor: "#f8f8f6",
+    display: "flex",
+    flexDirection: "row",
+    paddingHorizontal: 20,
+    justifyContent: "center",
+    alignItems: "center",
+  },
   dev: { backgroundColor: "#EAEAEA" },
 
   buttonText: { fontWeight: "700" },
@@ -82,4 +102,14 @@ export const styles = StyleSheet.create({
   devText: { color: "#111111", fontWeight: "700" },
 
   helper: { marginTop: 8, fontSize: 12, opacity: 0.6 },
+
+  errorText: {
+    color: "#D32F2F",
+    fontSize: 12,
+    marginTop: 6,
+  },
+
+  inputError: {
+    borderColor: "#D32F2F",
+  },
 });
