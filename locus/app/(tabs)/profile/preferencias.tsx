@@ -22,7 +22,8 @@ type Funcoes = { comprador: boolean; vendedor: boolean };
 type Estado = { id: number; sigla: string; nome: string };
 type Municipio = { id: number; nome: string };
 
-const IBGE_ESTADOS_URL = "https://servicodados.ibge.gov.br/api/v1/localidades/estados";
+const IBGE_ESTADOS_URL =
+  "https://servicodados.ibge.gov.br/api/v1/localidades/estados";
 const IBGE_MUNICIPIOS_POR_UF = (ufId: number) =>
   `https://servicodados.ibge.gov.br/api/v1/localidades/estados/${ufId}/municipios`;
 
@@ -40,19 +41,25 @@ export default function PreferenciasScreen() {
   const [loading, setLoading] = useState(true);
   const [salvando, setSalvando] = useState(false);
 
-  const [funcoes, setFuncoes] = useState<Funcoes>({ comprador: true, vendedor: false });
+  const [funcoes, setFuncoes] = useState<Funcoes>({
+    comprador: true,
+    vendedor: false,
+  });
 
   const [estados, setEstados] = useState<Estado[]>([]);
   const [modalEstadosAberto, setModalEstadosAberto] = useState(false);
   const [buscaEstado, setBuscaEstado] = useState("");
-  const [estadoSelecionado, setEstadoSelecionado] = useState<Estado | null>(null);
+  const [estadoSelecionado, setEstadoSelecionado] = useState<Estado | null>(
+    null,
+  );
 
   const [municipios, setMunicipios] = useState<Municipio[]>([]);
   const [carregandoMunicipios, setCarregandoMunicipios] = useState(false);
   const municipiosCache = useRef<Record<number, Municipio[]>>({});
 
   const [cidade, setCidade] = useState("");
-  const [municipioSelecionado, setMunicipioSelecionado] = useState<Municipio | null>(null);
+  const [municipioSelecionado, setMunicipioSelecionado] =
+    useState<Municipio | null>(null);
 
   const [erroFuncoes, setErroFuncoes] = useState("");
   const [erroUf, setErroUf] = useState("");
@@ -68,7 +75,8 @@ export default function PreferenciasScreen() {
   }
 
   async function fetchMunicipios(estadoId: number): Promise<Municipio[]> {
-    if (municipiosCache.current[estadoId]) return municipiosCache.current[estadoId];
+    if (municipiosCache.current[estadoId])
+      return municipiosCache.current[estadoId];
 
     const res = await fetch(IBGE_MUNICIPIOS_POR_UF(estadoId));
     if (!res.ok) throw new Error("Falha ao buscar municípios");
@@ -90,7 +98,10 @@ export default function PreferenciasScreen() {
         }
 
         const ref = doc(db, "usuarios", uid);
-        const [snap, estadosLista] = await Promise.all([getDoc(ref), fetchEstados()]);
+        const [snap, estadosLista] = await Promise.all([
+          getDoc(ref),
+          fetchEstados(),
+        ]);
         setEstados(estadosLista);
 
         if (snap.exists()) {
@@ -105,11 +116,17 @@ export default function PreferenciasScreen() {
           }
 
           // preferencias
-          const ufSalvo = data?.preferencias?.uf ? String(data.preferencias.uf) : "";
-          const cidadeSalva = data?.preferencias?.cidade ? String(data.preferencias.cidade) : "";
+          const ufSalvo = data?.preferencias?.uf
+            ? String(data.preferencias.uf)
+            : "";
+          const cidadeSalva = data?.preferencias?.cidade
+            ? String(data.preferencias.cidade)
+            : "";
 
           if (ufSalvo) {
-            const estado = estadosLista.find((e) => e.sigla === ufSalvo.toUpperCase()) ?? null;
+            const estado =
+              estadosLista.find((e) => e.sigla === ufSalvo.toUpperCase()) ??
+              null;
             setEstadoSelecionado(estado);
 
             if (estado) {
@@ -120,7 +137,8 @@ export default function PreferenciasScreen() {
 
                 if (cidadeSalva) {
                   const match = lista.find(
-                    (m) => normalizarTexto(m.nome) === normalizarTexto(cidadeSalva)
+                    (m) =>
+                      normalizarTexto(m.nome) === normalizarTexto(cidadeSalva),
                   );
                   if (match) {
                     setCidade(match.nome);
@@ -142,7 +160,10 @@ export default function PreferenciasScreen() {
         setLoading(false);
       } catch (e: any) {
         setLoading(false);
-        Alert.alert("Erro", e?.message ?? "Não consegui carregar suas preferências.");
+        Alert.alert(
+          "Erro",
+          e?.message ?? "Não consegui carregar suas preferências.",
+        );
       }
     };
 
@@ -154,12 +175,17 @@ export default function PreferenciasScreen() {
     if (erroFuncoes) setErroFuncoes("");
   }
 
-  const funcoesValidas = useMemo(() => funcoes.comprador || funcoes.vendedor, [funcoes]);
+  const funcoesValidas = useMemo(
+    () => funcoes.comprador || funcoes.vendedor,
+    [funcoes],
+  );
 
   const estadosFiltrados = useMemo(() => {
     const q = normalizarTexto(buscaEstado);
     if (!q) return estados;
-    return estados.filter((e) => normalizarTexto(`${e.sigla} ${e.nome}`).includes(q));
+    return estados.filter((e) =>
+      normalizarTexto(`${e.sigla} ${e.nome}`).includes(q),
+    );
   }, [buscaEstado, estados]);
 
   const sugestoesCidades = useMemo(() => {
@@ -206,7 +232,9 @@ export default function PreferenciasScreen() {
     let ok = true;
 
     if (!funcoesValidas) {
-      setErroFuncoes("Selecione pelo menos uma opção (comprador, vendedor ou ambos).");
+      setErroFuncoes(
+        "Selecione pelo menos uma opção (comprador, vendedor ou ambos).",
+      );
       ok = false;
     }
 
@@ -251,7 +279,7 @@ export default function PreferenciasScreen() {
           onboardingPulado: false,
           atualizadoEm: serverTimestamp(),
         },
-        { merge: true }
+        { merge: true },
       );
 
       Alert.alert("Sucesso", "Preferências atualizadas!");
@@ -272,8 +300,14 @@ export default function PreferenciasScreen() {
   }
 
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
-      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+    <KeyboardAvoidingView
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      style={{ flex: 1 }}
+    >
+      <ScrollView
+        contentContainerStyle={styles.container}
+        keyboardShouldPersistTaps="handled"
+      >
         <Text style={styles.title}>Preferências</Text>
 
         <View style={styles.card}>
@@ -282,18 +316,28 @@ export default function PreferenciasScreen() {
           <View style={{ gap: 10 }}>
             <Pressable
               onPress={() => toggleFuncao("comprador")}
-              style={[styles.optionCard, funcoes.comprador && styles.optionCardActive]}
+              style={[
+                styles.optionCard,
+                funcoes.comprador && styles.optionCardActive,
+              ]}
             >
               <Text style={styles.optionTitle}>Comprador</Text>
-              <Text style={styles.optionDesc}>Ver imóveis e favoritar opções.</Text>
+              <Text style={styles.optionDesc}>
+                Ver imóveis e favoritar opções.
+              </Text>
             </Pressable>
 
             <Pressable
               onPress={() => toggleFuncao("vendedor")}
-              style={[styles.optionCard, funcoes.vendedor && styles.optionCardActive]}
+              style={[
+                styles.optionCard,
+                funcoes.vendedor && styles.optionCardActive,
+              ]}
             >
               <Text style={styles.optionTitle}>Vendedor</Text>
-              <Text style={styles.optionDesc}>Criar anúncios e receber contatos.</Text>
+              <Text style={styles.optionDesc}>
+                Criar anúncios e receber contatos.
+              </Text>
             </Pressable>
 
             {!!erroFuncoes && <Text style={styles.error}>{erroFuncoes}</Text>}
@@ -304,8 +348,15 @@ export default function PreferenciasScreen() {
           <Text style={styles.sectionTitle}>Local</Text>
 
           <Text style={styles.label}>Estado (UF)</Text>
-          <Pressable onPress={() => setModalEstadosAberto(true)} style={styles.selectInput}>
-            <Text style={estadoSelecionado ? styles.selectText : styles.selectPlaceholder}>
+          <Pressable
+            onPress={() => setModalEstadosAberto(true)}
+            style={styles.selectInput}
+          >
+            <Text
+              style={
+                estadoSelecionado ? styles.selectText : styles.selectPlaceholder
+              }
+            >
               {estadoSelecionado
                 ? `${estadoSelecionado.sigla} — ${estadoSelecionado.nome}`
                 : "Selecione um estado"}
@@ -321,14 +372,25 @@ export default function PreferenciasScreen() {
               setMunicipioSelecionado(null); // digitar invalida seleção anterior
               if (erroCidade) setErroCidade("");
             }}
-            placeholder={estadoSelecionado ? "Digite e selecione na lista…" : "Selecione um estado primeiro"}
+            placeholder={
+              estadoSelecionado
+                ? "Digite e selecione na lista…"
+                : "Selecione um estado primeiro"
+            }
             style={[styles.input, !estadoSelecionado && styles.inputDisabled]}
             autoCapitalize="words"
             editable={!!estadoSelecionado && !carregandoMunicipios}
           />
 
           {carregandoMunicipios && (
-            <View style={{ marginTop: 8, flexDirection: "row", gap: 8, alignItems: "center" }}>
+            <View
+              style={{
+                marginTop: 8,
+                flexDirection: "row",
+                gap: 8,
+                alignItems: "center",
+              }}
+            >
               <ActivityIndicator />
               <Text style={{ opacity: 0.7 }}>Carregando cidades…</Text>
             </View>
@@ -337,7 +399,11 @@ export default function PreferenciasScreen() {
           {!!estadoSelecionado && sugestoesCidades.length > 0 && (
             <View style={styles.sugestoesBox}>
               {sugestoesCidades.map((m) => (
-                <Pressable key={m.id} onPress={() => selecionarCidade(m)} style={styles.sugestaoItem}>
+                <Pressable
+                  key={m.id}
+                  onPress={() => selecionarCidade(m)}
+                  style={styles.sugestaoItem}
+                >
                   <Text>{m.nome}</Text>
                 </Pressable>
               ))}
@@ -345,17 +411,29 @@ export default function PreferenciasScreen() {
           )}
 
           {!!municipioSelecionado && (
-            <Text style={styles.okText}>Selecionado: {municipioSelecionado.nome}</Text>
+            <Text style={styles.okText}>
+              Selecionado: {municipioSelecionado.nome}
+            </Text>
           )}
 
           {!!erroCidade && <Text style={styles.error}>{erroCidade}</Text>}
         </View>
 
-        <Pressable style={styles.primaryBtn} onPress={salvar} disabled={salvando}>
-          <Text style={styles.primaryText}>{salvando ? "Salvando…" : "Salvar"}</Text>
+        <Pressable
+          style={styles.primaryBtn}
+          onPress={salvar}
+          disabled={salvando}
+        >
+          <Text style={styles.primaryText}>
+            {salvando ? "Salvando…" : "Salvar"}
+          </Text>
         </Pressable>
 
-        <Pressable style={styles.secondaryBtn} onPress={() => router.back()} disabled={salvando}>
+        <Pressable
+          style={styles.secondaryBtn}
+          onPress={() => router.replace("/(tabs)/profile")}
+          disabled={salvando}
+        >
           <Text style={styles.secondaryText}>Cancelar</Text>
         </Pressable>
       </ScrollView>
@@ -367,7 +445,10 @@ export default function PreferenciasScreen() {
         transparent
         onRequestClose={() => setModalEstadosAberto(false)}
       >
-        <Pressable style={styles.modalOverlay} onPress={() => setModalEstadosAberto(false)} />
+        <Pressable
+          style={styles.modalOverlay}
+          onPress={() => setModalEstadosAberto(false)}
+        />
         <View style={styles.modalContent}>
           <Text style={styles.modalTitle}>Selecione seu estado</Text>
 
@@ -384,7 +465,10 @@ export default function PreferenciasScreen() {
             keyExtractor={(item) => String(item.id)}
             keyboardShouldPersistTaps="handled"
             renderItem={({ item }) => (
-              <Pressable onPress={() => selecionarEstado(item)} style={styles.estadoItem}>
+              <Pressable
+                onPress={() => selecionarEstado(item)}
+                style={styles.estadoItem}
+              >
                 <Text style={{ fontWeight: "700" }}>{item.sigla}</Text>
                 <Text style={{ marginLeft: 10 }}>{item.nome}</Text>
               </Pressable>
@@ -412,7 +496,12 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 14,
   },
-  sectionTitle: { fontSize: 14, fontWeight: "800", marginBottom: 10, color: "#111" },
+  sectionTitle: {
+    fontSize: 14,
+    fontWeight: "800",
+    marginBottom: 10,
+    color: "#111",
+  },
 
   optionCard: {
     padding: 14,

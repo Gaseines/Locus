@@ -1,4 +1,12 @@
-import { collection, getDocs, orderBy, query, startAt, endAt, where } from "firebase/firestore";
+import {
+  collection,
+  getDocs,
+  orderBy,
+  query,
+  startAt,
+  endAt,
+  where,
+} from "firebase/firestore";
 import { geohashQueryBounds, distanceBetween } from "geofire-common";
 import { db } from "@/src/firebase";
 
@@ -6,56 +14,64 @@ export type Imovel = {
   id: string;
   titulo?: string;
   precoCentavos?: number;
-  moeda?: string;
   cidade?: string;
   uf?: string;
   status?: "rascunho" | "publicado" | "arquivado";
-  localizacao?: { latitude: number; longitude: number; geohash: string };
+  localizacao?: {
+    latitude: number;
+    longitude: number;
+    geohash: string;
+  };
+  idDono?: string;
 };
 
 export async function buscarImoveisPorRaio(params: {
   centro: { latitude: number; longitude: number };
   raioKm: number;
-}) {
+}): Promise<Imovel[]> {
   const { centro, raioKm } = params;
 
-  const radiusInM = raioKm * 1000;
-  const bounds = geohashQueryBounds([centro.latitude, centro.longitude], radiusInM);
+  const bounds = geohashQueryBounds(
+    [centro.latitude, centro.longitude],
+    raioKm * 1000
+  );
 
-  // ⚠️ pode pedir índice composto: status + localizacao.geohash (o console te dá o link)
-  const promises = bounds.map(([start, end]) => {
-    const q = query(
-      collection(db, "imoveis"),
-      where("status", "==", "publicado"),
-      orderBy("localizacao.geohash"),
-      startAt(start),
-      endAt(end)
+  try {
+    const snapshots = await Promise.all(
+      bounds.map(async ([start, end]) => {
+        const q = query(
+          collection(db, "imoveis"),
+          where("status", "==", "publicado"),            // ✅ necessário por causa da regra
+          orderBy("localizacao.geohash"),               // necessário pro geohash range
+          startAt(start),
+          endAt(end)
+        );
+
+        const snap = await getDocs(q);
+        return snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }) as Imovel);
+      })
     );
-    return getDocs(q);
-  });
 
-  const snaps = await Promise.all(promises);
+    // dedup (bounds podem repetir docs)
+    const map = new Map<string, Imovel>();
+    snapshots.flat().forEach((im) => map.set(im.id, im));
 
-  const map = new Map<string, Imovel>();
-
-  for (const snap of snaps) {
-    for (const d of snap.docs) {
-      const data = d.data() as any;
-
-      // filtra de verdade por distância (pq geohash bounds é aproximação)
-      const loc = data?.localizacao;
-      if (!loc?.latitude || !loc?.longitude) continue;
+    // filtra por distância real (km)
+    const filtrados = Array.from(map.values()).filter((im) => {
+      const loc = im.localizacao;
+      if (!loc?.latitude || !loc?.longitude) return false;
 
       const distKm = distanceBetween(
-        [loc.latitude, loc.longitude],
-        [centro.latitude, centro.longitude]
+        [centro.latitude, centro.longitude],
+        [loc.latitude, loc.longitude]
       );
 
-      if (distKm <= raioKm) {
-        map.set(d.id, { id: d.id, ...(data as any) });
-      }
-    }
-  }
+      return distKm <= raioKm;
+    });
 
-  return Array.from(map.values());
+    return filtrados;
+  } catch (e: any) {
+    console.log("ERRO buscarImoveisPorRaio:", e?.code, e?.message, e);
+    throw e;
+  }
 }

@@ -1,0 +1,131 @@
+import { StyleSheet } from "react-native";
+
+export const MAPA_ESTILO = [
+  { elementType: "geometry", stylers: [{ color: "#F5F4F2" }] },
+  { elementType: "labels.text.fill", stylers: [{ color: "#5B5B5B" }] },
+  { elementType: "labels.text.stroke", stylers: [{ color: "#F5F4F2" }] },
+  {
+    featureType: "administrative",
+    elementType: "geometry.stroke",
+    stylers: [{ color: "#E2E2E2" }],
+  },
+  {
+    featureType: "landscape.natural",
+    elementType: "geometry",
+    stylers: [{ color: "#EFEFEF" }],
+  },
+  { featureType: "poi", stylers: [{ visibility: "off" }] },
+  { featureType: "transit", stylers: [{ visibility: "off" }] },
+  { featureType: "road", elementType: "geometry", stylers: [{ color: "#FFFFFF" }] },
+  { featureType: "road", elementType: "geometry.stroke", stylers: [{ color: "#ECECEC" }] },
+  { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#E6E6E6" }] },
+  { featureType: "water", elementType: "geometry", stylers: [{ color: "#E9E9E9" }] },
+];
+
+export const styles = StyleSheet.create({
+  page: { flex: 1, backgroundColor: "#F8F8F6" },
+  center: { flex: 1, alignItems: "center", justifyContent: "center" },
+
+  mapWrap: { height: "45%", backgroundColor: "#D7EBDD" },
+
+  // ✅ MESMA POSIÇÃO QUE VOCÊ TINHA
+  searchBar: {
+    position: "absolute",
+    top: 50,
+    left: 14,
+    right: 14,
+    backgroundColor: "#fff",
+    borderRadius: 18,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: "#E5E5E5",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+
+    shadowColor: "#000",
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 4,
+  },
+  searchText: { fontWeight: "900", color: "#111" },
+  searchHint: { marginTop: 2, fontSize: 12, opacity: 0.7 },
+  searchChip: {
+    width: 34,
+    height: 34,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#EAEAEA",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#fff",
+  },
+
+  // ✅ MESMA POSIÇÃO QUE VOCÊ TINHA
+  buscarAreaBtn: {
+    position: "absolute",
+    top: 120,
+    left: 14,
+    alignSelf: "center",
+    backgroundColor: "#fff",
+    borderRadius: 999,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: "#E5E5E5",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+
+    shadowColor: "#000",
+    shadowOpacity: 0.10,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 5,
+  },
+  buscarAreaText: { fontWeight: "900", color: "#111" },
+
+  // FAB localização
+  locFab: {
+    position: "absolute",
+    right: 14,
+    bottom: 14,
+    width: 46,
+    height: 46,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: "#E5E5E5",
+
+    shadowColor: "#000",
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 6,
+  },
+
+  listHeader: { paddingHorizontal: 16, paddingTop: 12 },
+  listTitle: { fontSize: 16, fontWeight: "900", color: "#111" },
+  sellerHint: { marginTop: 6, fontSize: 12, opacity: 0.7 },
+
+  card: {
+    backgroundColor: "#fff",
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "#E5E5E5",
+  },
+  cardActive: {
+    borderColor: "#5A9F78",
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+  },
+  cardTitle: { fontSize: 15, fontWeight: "900", color: "#111" },
+  cardSub: { marginTop: 4, fontSize: 12, opacity: 0.7 },
+  cardPrice: { marginTop: 10, fontSize: 14, fontWeight: "900", color: "#111" },
+});

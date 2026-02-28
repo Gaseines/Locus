@@ -67,8 +67,11 @@ export default function ProfileTab() {
       },
       (err) => {
         setLoading(false);
-        Alert.alert("Erro", err?.message ?? "Não foi possível carregar seu perfil.");
-      }
+        Alert.alert(
+          "Erro",
+          err?.message ?? "Não foi possível carregar seu perfil.",
+        );
+      },
     );
 
     return () => unsub();
@@ -78,7 +81,10 @@ export default function ProfileTab() {
     const n =
       usuario?.fullName ||
       usuario?.nomeCompleto ||
-      [usuario?.firstName ?? usuario?.primeiroNome, usuario?.lastName ?? usuario?.sobrenome]
+      [
+        usuario?.firstName ?? usuario?.primeiroNome,
+        usuario?.lastName ?? usuario?.sobrenome,
+      ]
         .filter(Boolean)
         .join(" ");
     return n?.trim() ? n : "Usuário";
@@ -89,7 +95,10 @@ export default function ProfileTab() {
     return t ? String(t) : "Não informado";
   }, [usuario]);
 
-  const emailExibicao = useMemo(() => usuario?.email ?? emailAuth ?? "Não informado", [usuario, emailAuth]);
+  const emailExibicao = useMemo(
+    () => usuario?.email ?? emailAuth ?? "Não informado",
+    [usuario, emailAuth],
+  );
 
   const funcoesExibicao = useMemo(() => {
     const f = usuario?.funcoes;
@@ -161,6 +170,23 @@ export default function ProfileTab() {
         </Pressable>
       </View>
 
+      <View style={styles.card}>
+        <Pressable
+          style={{
+            height: 46,
+            borderRadius: 10,
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: "#5a9f78",
+          }}
+          onPress={() => router.push("/(tabs)/profile/novo-imovel")}
+        >
+          <Text style={{ color: "#fff", fontWeight: "900" }}>
+            Anunciar imóvel
+          </Text>
+        </Pressable>
+      </View>
+
       <Pressable style={styles.logoutButton} onPress={handleLogout}>
         <Text style={styles.logoutText}>Sair</Text>
       </Pressable>
@@ -180,7 +206,12 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 14,
   },
-  sectionTitle: { fontSize: 14, fontWeight: "800", marginBottom: 10, color: "#111" },
+  sectionTitle: {
+    fontSize: 14,
+    fontWeight: "800",
+    marginBottom: 10,
+    color: "#111",
+  },
 
   label: { fontSize: 12, opacity: 0.7 },
   value: { fontSize: 16, fontWeight: "700", marginTop: 4 },

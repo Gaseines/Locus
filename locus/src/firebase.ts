@@ -4,6 +4,9 @@ import { getFirestore } from "firebase/firestore";
 // @ts-ignore
 import { getAuth, initializeAuth, getReactNativePersistence } from "firebase/auth";
 
+//storage
+import { getStorage } from "firebase/storage";
+
 const firebaseConfig = {
   apiKey: "AIzaSyC7BrgZJXM_tDZQfPB96ecT0wHe-eyebbs",
   authDomain: "locus-c66a5.firebaseapp.com",
@@ -28,3 +31,4 @@ export const auth = (() => {
 })();
 
 export const db = getFirestore(app);
+export const storage = getStorage(app);

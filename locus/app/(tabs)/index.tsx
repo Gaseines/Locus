@@ -1,21 +1,24 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useFocusEffect } from "@react-navigation/native";
 import {
   ActivityIndicator,
   FlatList,
   Pressable,
-  StyleSheet,
   Text,
   View,
   Platform,
   Alert,
+  StyleSheet,
 } from "react-native";
 import MapView, { Marker, PROVIDER_GOOGLE, Region } from "react-native-maps";
 import * as Location from "expo-location";
 import { doc, onSnapshot } from "firebase/firestore";
 import { auth, db } from "@/src/firebase";
 import { router } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 
 import { buscarImoveisPorRaio, Imovel } from "@/src/services/imoveisProximos";
+import { MAPA_ESTILO, styles } from "./home.styles";
 
 type UsuarioDoc = {
   funcoes?: { comprador?: boolean; vendedor?: boolean };
@@ -32,13 +35,11 @@ async function getUserLocationSafe() {
   const { status } = await Location.requestForegroundPermissionsAsync();
   if (status !== "granted") return null;
 
-  // tenta lastKnown primeiro (mais rápido e evita travas em alguns cenários)
   const last = await Location.getLastKnownPositionAsync({});
   if (last?.coords?.latitude && last?.coords?.longitude) {
     return { latitude: last.coords.latitude, longitude: last.coords.longitude };
   }
 
-  // timeout no getCurrentPositionAsync
   const timeoutMs = 6000;
   const pos = await Promise.race([
     Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
@@ -51,7 +52,11 @@ async function getUserLocationSafe() {
 
 export default function HomeTab() {
   const mapRef = useRef<MapView>(null);
-  const debounceRef = useRef<NodeJS.Timeout | null>(null);
+  const listaRef = useRef<FlatList<Imovel>>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // evita rebuscar mil vezes quando volta pra Home e também no load inicial
+  const jaBuscouInicialRef = useRef(false);
 
   const [usuario, setUsuario] = useState<UsuarioDoc | null>(null);
 
@@ -61,7 +66,7 @@ export default function HomeTab() {
   );
 
   const [region, setRegion] = useState<Region>({
-    latitude: -26.6367, // fallback (ajusta se quiser)
+    latitude: -26.6367,
     longitude: -48.6937,
     latitudeDelta: 0.08,
     longitudeDelta: 0.08,
@@ -70,20 +75,25 @@ export default function HomeTab() {
   const [imoveis, setImoveis] = useState<Imovel[]>([]);
   const [buscando, setBuscando] = useState(false);
   const [selecionadoId, setSelecionadoId] = useState<string | null>(null);
+  const [areaMudou, setAreaMudou] = useState(false);
 
   const uid = auth.currentUser?.uid;
 
   const modoComprador = useMemo(() => {
     const f = usuario?.funcoes;
-    const comprador = f?.comprador !== false; // default: true
+    const comprador = f?.comprador !== false; // default true
     const vendedor = !!f?.vendedor;
 
-    // comprador true, ambos, ou pulou => mostra mapa + lista
     if (comprador) return true;
-    // vendedor-only => por enquanto também mostra (market intel), mas podemos mudar depois
     if (!comprador && vendedor) return false;
     return true;
   }, [usuario]);
+
+  const indexPorId = useMemo(() => {
+    const map = new Map<string, number>();
+    imoveis.forEach((it, idx) => map.set(it.id, idx));
+    return map;
+  }, [imoveis]);
 
   // carrega usuario (funcoes/preferencias)
   useEffect(() => {
@@ -95,43 +105,94 @@ export default function HomeTab() {
     return () => unsub();
   }, [uid]);
 
-  // pega localização ao entrar
+  function raioKmDaTela(r: Region) {
+    const half = (r.latitudeDelta * 111) / 2;
+    return Math.max(2, Math.min(25, half));
+  }
+
+  const carregarImoveis = useCallback(
+    async (centro: { latitude: number; longitude: number }, r: Region) => {
+      try {
+        setBuscando(true);
+        const raioKm = raioKmDaTela(r);
+        const lista = await buscarImoveisPorRaio({ centro, raioKm });
+        setImoveis(lista);
+      } catch (e: any) {
+        console.log("ERRO carregarImoveis:", e?.code, e?.message, e);
+      } finally {
+        setBuscando(false);
+      }
+    },
+    []
+  );
+
+  function debouncedMarcarAreaMudou() {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => setAreaMudou(true), 300);
+  }
+
+  // pega localização ao entrar e faz busca inicial
   useEffect(() => {
     const run = async () => {
       try {
         const loc = await getUserLocationSafe();
+
         if (loc) {
           setPosUsuario(loc);
-          const r = {
+
+          const r: Region = {
             latitude: loc.latitude,
             longitude: loc.longitude,
             latitudeDelta: 0.06,
             longitudeDelta: 0.06,
           };
+
           setRegion(r);
-          // anima o mapa
           requestAnimationFrame(() => mapRef.current?.animateToRegion(r, 600));
-        } else {
-          // sem permissão: tenta usar preferências (cidade/uf) como fallback depois
+
+          await carregarImoveis({ latitude: r.latitude, longitude: r.longitude }, r);
+          jaBuscouInicialRef.current = true;
+          setAreaMudou(false);
         }
-      } catch {
-        // deixa no fallback
+      } catch (e: any) {
+        console.log("ERRO getUserLocationSafe:", e?.code, e?.message, e);
       } finally {
         setCarregando(false);
       }
     };
-    run();
-  }, []);
 
-  // se o usuário mudar preferências (perfil), recentraliza no local salvo (quando não estiver usando "minha localização")
+    run();
+  }, [carregarImoveis]);
+
+  // quando voltar pra Home, rebusca (ex: após salvar imóvel)
+  useFocusEffect(
+    useCallback(() => {
+      if (carregando) return;
+
+      // se ainda não fez a busca inicial, não força aqui
+      if (!jaBuscouInicialRef.current) return;
+
+      carregarImoveis(
+        { latitude: region.latitude, longitude: region.longitude },
+        region
+      );
+      setAreaMudou(false);
+    }, [
+      carregando,
+      carregarImoveis,
+      region.latitude,
+      region.longitude,
+      region.latitudeDelta,
+      region.longitudeDelta,
+    ])
+  );
+
+  // se usuário não tem GPS (posUsuario null) e ele alterou preferências, centraliza e busca
   useEffect(() => {
     const cidade = usuario?.preferencias?.cidade?.trim();
     const uf = usuario?.preferencias?.uf?.trim()?.toUpperCase();
 
     if (!cidade || !uf) return;
-
-    // se ele tem localização do GPS, não vamos “brigar” com a experiência inicial
-    // (mas ele pode trocar local mexendo no mapa)
     if (posUsuario) return;
 
     const run = async () => {
@@ -140,63 +201,36 @@ export default function HomeTab() {
         if (!results?.length) return;
 
         const { latitude, longitude } = results[0];
-        const r = {
+        const r: Region = {
           latitude,
           longitude,
           latitudeDelta: 0.08,
           longitudeDelta: 0.08,
         };
+
         setRegion(r);
         mapRef.current?.animateToRegion(r, 600);
-      } catch {
-        // ignora
+
+        await carregarImoveis({ latitude: r.latitude, longitude: r.longitude }, r);
+        setAreaMudou(false);
+        jaBuscouInicialRef.current = true;
+      } catch (e: any) {
+        console.log("ERRO geocode preferências:", e?.code, e?.message, e);
       }
     };
 
     run();
-  }, [usuario?.preferencias?.cidade, usuario?.preferencias?.uf, posUsuario]);
-
-  function raioKmDaTela(r: Region) {
-    // aproximação: 1 grau de latitude ~ 111km
-    const half = (r.latitudeDelta * 111) / 2;
-    return Math.max(2, Math.min(25, half)); // entre 2km e 25km
-  }
-
-  async function carregarImoveis(centro: { latitude: number; longitude: number }, r: Region) {
-    try {
-      setBuscando(true);
-      const raioKm = raioKmDaTela(r);
-      const lista = await buscarImoveisPorRaio({ centro, raioKm });
-      setImoveis(lista);
-    } catch (e: any) {
-      // se for primeiro uso e não existir índice, o Firestore dá erro com link
-      // (melhor mostrar uma msg amigável)
-      // console.log(e?.message);
-    } finally {
-      setBuscando(false);
-    }
-  }
-
-  function debouncedFetch(nextRegion: Region) {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      carregarImoveis(
-        { latitude: nextRegion.latitude, longitude: nextRegion.longitude },
-        nextRegion
-      );
-    }, 450);
-  }
-
-  useEffect(() => {
-    // busca inicial assim que saiu do loading
-    if (carregando) return;
-    debouncedFetch(region);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [carregando]);
+  }, [usuario?.preferencias?.cidade, usuario?.preferencias?.uf, posUsuario, carregarImoveis]);
 
   const onRegionChangeComplete = (r: Region) => {
     setRegion(r);
-    debouncedFetch(r);
+    debouncedMarcarAreaMudou();
+  };
+
+  const buscarNestaArea = async () => {
+    await carregarImoveis({ latitude: region.latitude, longitude: region.longitude }, region);
+    setAreaMudou(false);
+    jaBuscouInicialRef.current = true;
   };
 
   const irParaMinhaLocalizacao = async () => {
@@ -208,14 +242,20 @@ export default function HomeTab() {
       }
 
       setPosUsuario(loc);
-      const r = {
+
+      const r: Region = {
         latitude: loc.latitude,
         longitude: loc.longitude,
         latitudeDelta: 0.06,
         longitudeDelta: 0.06,
       };
+
       setRegion(r);
       mapRef.current?.animateToRegion(r, 600);
+
+      await carregarImoveis({ latitude: r.latitude, longitude: r.longitude }, r);
+      setAreaMudou(false);
+      jaBuscouInicialRef.current = true;
     } catch {
       Alert.alert("Localização", "Não consegui pegar sua localização agora.");
     }
@@ -223,6 +263,30 @@ export default function HomeTab() {
 
   const abrirPreferencias = () => {
     router.push("/(tabs)/profile/preferencias");
+  };
+
+  const selecionarImovel = (im: Imovel) => {
+    setSelecionadoId(im.id);
+
+    const loc = im.localizacao;
+    if (loc?.latitude && loc?.longitude) {
+      const r: Region = {
+        latitude: loc.latitude,
+        longitude: loc.longitude,
+        latitudeDelta: region.latitudeDelta,
+        longitudeDelta: region.longitudeDelta,
+      };
+      mapRef.current?.animateToRegion(r, 450);
+    }
+  };
+
+  const selecionarMarker = (im: Imovel) => {
+    setSelecionadoId(im.id);
+
+    const idx = indexPorId.get(im.id);
+    if (idx !== undefined) {
+      listaRef.current?.scrollToIndex({ index: idx, animated: true, viewPosition: 0.2 });
+    }
   };
 
   if (carregando) {
@@ -236,46 +300,81 @@ export default function HomeTab() {
 
   return (
     <View style={styles.page}>
-      {/* MAPA */}
       <View style={styles.mapWrap}>
         <MapView
           ref={mapRef}
           style={StyleSheet.absoluteFill}
           initialRegion={region}
           onRegionChangeComplete={onRegionChangeComplete}
+          customMapStyle={Platform.OS === "android" ? MAPA_ESTILO : undefined}
+          mapType={Platform.OS === "ios" ? "mutedStandard" : "standard"}
           showsUserLocation
           showsMyLocationButton={false}
+          showsPointsOfInterest={false}
+          showsBuildings={false}
+          showsTraffic={false}
+          rotateEnabled={false}
+          pitchEnabled={false}
           provider={Platform.OS === "android" ? PROVIDER_GOOGLE : undefined}
         >
           {imoveis.map((im) => {
             const loc = im.localizacao;
             if (!loc) return null;
+
+            const ativo = im.id === selecionadoId;
+
             return (
               <Marker
                 key={im.id}
                 coordinate={{ latitude: loc.latitude, longitude: loc.longitude }}
-                onPress={() => setSelecionadoId(im.id)}
+                onPress={() => selecionarMarker(im)}
+                opacity={ativo ? 1 : 0.85}
               />
             );
           })}
         </MapView>
 
-        {/* “barra” tipo Airbnb (MVP: abre Preferências pra trocar cidade/UF) */}
-        <Pressable style={styles.searchBar} onPress={abrirPreferencias}>
-          <Text style={styles.searchText}>
-            {usuario?.preferencias?.cidade && usuario?.preferencias?.uf
-              ? `${usuario.preferencias.cidade} - ${usuario.preferencias.uf}`
-              : "Buscar cidade…"}
-          </Text>
-          <Text style={styles.searchHint}>Trocar local</Text>
+        <Pressable style={styles.searchBar} onPress={abrirPreferencias} hitSlop={8}>
+          <Ionicons name="search" size={18} color="#5B5B5B" />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.searchText}>
+              {usuario?.preferencias?.cidade && usuario?.preferencias?.uf
+                ? `${usuario.preferencias.cidade} - ${usuario.preferencias.uf}`
+                : "Buscar cidade…"}
+            </Text>
+            <Text style={styles.searchHint}>Trocar local</Text>
+          </View>
+
+          <View style={styles.searchChip}>
+            <Ionicons name="options-outline" size={16} color="#111" />
+          </View>
         </Pressable>
 
-        <Pressable style={styles.locBtn} onPress={irParaMinhaLocalizacao}>
-          <Text style={styles.locBtnText}>Minha localização</Text>
+        {areaMudou && (
+          <Pressable
+            style={[styles.buscarAreaBtn, buscando && { opacity: 0.7 }]}
+            onPress={buscarNestaArea}
+            disabled={buscando}
+            hitSlop={10}
+          >
+            <Ionicons name="refresh" size={16} color="#111" />
+            <Text style={styles.buscarAreaText}>
+              {buscando ? "Buscando…" : "Buscar nesta área"}
+            </Text>
+          </Pressable>
+        )}
+
+        <Pressable
+          style={styles.locFab}
+          onPress={irParaMinhaLocalizacao}
+          hitSlop={12}
+          accessibilityRole="button"
+          accessibilityLabel="Ir para minha localização"
+        >
+          <Ionicons name="locate" size={20} color="#5A9F78" />
         </Pressable>
       </View>
 
-      {/* LISTA */}
       <View style={styles.listHeader}>
         <Text style={styles.listTitle}>
           {buscando ? "Buscando imóveis perto…" : "Imóveis por perto"}
@@ -289,17 +388,20 @@ export default function HomeTab() {
       </View>
 
       <FlatList
+        ref={listaRef}
         data={imoveis}
         keyExtractor={(item) => item.id}
         contentContainerStyle={{ padding: 16, paddingTop: 10, gap: 10 }}
+        onScrollToIndexFailed={() => {}}
+        refreshing={buscando}
+        onRefresh={() =>
+          carregarImoveis({ latitude: region.latitude, longitude: region.longitude }, region)
+        }
         renderItem={({ item }) => {
           const ativo = item.id === selecionadoId;
 
           return (
-            <Pressable
-              onPress={() => setSelecionadoId(item.id)}
-              style={[styles.card, ativo && styles.cardActive]}
-            >
+            <Pressable onPress={() => selecionarImovel(item)} style={[styles.card, ativo && styles.cardActive]}>
               <Text style={styles.cardTitle}>{item.titulo ?? "Imóvel"}</Text>
               <Text style={styles.cardSub}>
                 {item.cidade && item.uf ? `${item.cidade} - ${item.uf}` : "Local não informado"}
@@ -310,70 +412,10 @@ export default function HomeTab() {
         }}
         ListEmptyComponent={
           <View style={{ padding: 16 }}>
-            <Text style={{ opacity: 0.7 }}>
-              Ainda não tem anúncios publicados nessa região.
-            </Text>
+            <Text style={{ opacity: 0.7 }}>Ainda não tem anúncios publicados nessa região.</Text>
           </View>
         }
       />
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  page: { flex: 1, backgroundColor: "#F8F8F6" },
-
-  center: { flex: 1, alignItems: "center", justifyContent: "center" },
-
-  mapWrap: {
-    height: "45%",
-    backgroundColor: "#D7EBDD",
-  },
-
-  searchBar: {
-    position: "absolute",
-    top: 14,
-    left: 14,
-    right: 14,
-    backgroundColor: "#fff",
-    borderRadius: 16,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderWidth: 1,
-    borderColor: "#E5E5E5",
-  },
-  searchText: { fontWeight: "800", color: "#111" },
-  searchHint: { marginTop: 2, fontSize: 12, opacity: 0.7 },
-
-  locBtn: {
-    position: "absolute",
-    right: 14,
-    bottom: 14,
-    backgroundColor: "#5A9F78",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 14,
-  },
-  locBtnText: { color: "#fff", fontWeight: "900" },
-
-  listHeader: { paddingHorizontal: 16, paddingTop: 12 },
-  listTitle: { fontSize: 16, fontWeight: "900", color: "#111" },
-  sellerHint: { marginTop: 6, fontSize: 12, opacity: 0.7 },
-
-  card: {
-    backgroundColor: "#fff",
-    borderRadius: 14,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: "#E5E5E5",
-  },
-  cardActive: {
-    borderColor: "#5A9F78",
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
-  },
-  cardTitle: { fontSize: 15, fontWeight: "900", color: "#111" },
-  cardSub: { marginTop: 4, fontSize: 12, opacity: 0.7 },
-  cardPrice: { marginTop: 10, fontSize: 14, fontWeight: "900", color: "#111" },
-});
