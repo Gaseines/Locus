@@ -80,7 +80,7 @@ export const styles = StyleSheet.create({
     gap: 8,
 
     shadowColor: "#000",
-    shadowOpacity: 0.10,
+    shadowOpacity: 0.1,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 6 },
     elevation: 5,
@@ -128,4 +128,173 @@ export const styles = StyleSheet.create({
   cardTitle: { fontSize: 15, fontWeight: "900", color: "#111" },
   cardSub: { marginTop: 4, fontSize: 12, opacity: 0.7 },
   cardPrice: { marginTop: 10, fontSize: 14, fontWeight: "900", color: "#111" },
+
+  // =========================
+  // ✅ MODAIS BUSCA / UF (IBGE)
+  // =========================
+  modalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.35)",
+  },
+  modalSheetWrap: {
+    flex: 1,
+    justifyContent: "flex-end",
+  },
+  modalSheet: {
+    backgroundColor: "#fff",
+    padding: 16,
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    borderWidth: 1,
+    borderColor: "#E5E5E5",
+  },
+  modalSheetTall: {
+    maxHeight: "75%",
+  },
+  modalHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    marginBottom: 10,
+  },
+  modalIconBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#EAEAEA",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#fff",
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "900",
+    color: "#111",
+  },
+  modalLabel: {
+    color: "#5b5b5b",
+    fontWeight: "800",
+    marginTop: 10,
+    marginBottom: 6,
+  },
+  modalInput: {
+    borderWidth: 1,
+    borderColor: "#E5E5E5",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: "#111",
+    backgroundColor: "#F8F8F6",
+  },
+
+  modalSelectField: {
+    borderWidth: 1,
+    borderColor: "#E5E5E5",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    backgroundColor: "#F8F8F6",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  modalSelectText: {
+    color: "#111",
+    fontWeight: "900",
+    flex: 1,
+  },
+  modalSelectPlaceholder: {
+    color: "#999",
+    fontWeight: "800",
+    flex: 1,
+  },
+
+  modalMutedText: {
+    marginTop: 8,
+    fontSize: 12,
+    color: "#5b5b5b",
+    opacity: 0.75,
+  },
+
+  modalRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 14,
+  },
+  modalBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalBtnGhost: {
+    backgroundColor: "transparent",
+    borderWidth: 1,
+    borderColor: "#E5E5E5",
+  },
+  modalBtnGhostText: {
+    color: "#5b5b5b",
+    fontWeight: "900",
+  },
+  modalBtnPrimary: {
+    backgroundColor: "#5A9F78",
+  },
+  modalBtnPrimaryText: {
+    color: "#fff",
+    fontWeight: "900",
+  },
+
+  // sugestões de cidade
+  suggestBox: {
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: "#E5E5E5",
+    borderRadius: 12,
+    overflow: "hidden",
+    backgroundColor: "#fff",
+    maxHeight: 240,
+  },
+  suggestItem: {
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+  },
+  suggestText: {
+    color: "#111",
+    fontWeight: "800",
+  },
+
+  // modal UF
+  modalSearchInput: {
+    borderWidth: 1,
+    borderColor: "#E5E5E5",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: "#111",
+    backgroundColor: "#F8F8F6",
+    marginBottom: 10,
+  },
+  modalDivider: {
+    height: 1,
+    backgroundColor: "#EFEFEF",
+  },
+  modalListItem: {
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  modalListItemActive: {
+    backgroundColor: "#D7EBDD",
+  },
+  modalListItemText: {
+    color: "#111",
+    fontWeight: "900",
+  },
 });

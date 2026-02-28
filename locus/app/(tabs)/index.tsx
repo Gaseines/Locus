@@ -9,6 +9,9 @@ import {
   Platform,
   Alert,
   StyleSheet,
+  Modal,
+  TextInput,
+  KeyboardAvoidingView,
 } from "react-native";
 import MapView, { Marker, PROVIDER_GOOGLE, Region } from "react-native-maps";
 import * as Location from "expo-location";
@@ -19,16 +22,28 @@ import { Ionicons } from "@expo/vector-icons";
 
 import { buscarImoveisPorRaio, Imovel } from "@/src/services/imoveisProximos";
 import { MAPA_ESTILO, styles } from "./home.styles";
+import { PriceMarker } from "@/components/PriceMarker";
 
 type UsuarioDoc = {
   funcoes?: { comprador?: boolean; vendedor?: boolean };
   preferencias?: { cidade?: string; uf?: string };
 };
 
+type EstadoIBGE = { id: number; sigla: string; nome: string };
+type MunicipioIBGE = { id: number; nome: string };
+
 function formatarPreco(precoCentavos?: number) {
   if (!precoCentavos) return "Preço a combinar";
   const v = precoCentavos / 100;
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+function norm(s: string) {
+  return (s || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
 }
 
 async function getUserLocationSafe() {
@@ -48,6 +63,22 @@ async function getUserLocationSafe() {
 
   const p: any = pos;
   return { latitude: p.coords.latitude, longitude: p.coords.longitude };
+}
+
+async function fetchEstadosIBGE(): Promise<EstadoIBGE[]> {
+  const res = await fetch("https://servicodados.ibge.gov.br/api/v1/localidades/estados");
+  if (!res.ok) throw new Error("Falha ao carregar estados IBGE");
+  const data = (await res.json()) as EstadoIBGE[];
+  return data.sort((a, b) => a.nome.localeCompare(b.nome));
+}
+
+async function fetchMunicipiosIBGE(estadoId: number): Promise<MunicipioIBGE[]> {
+  const res = await fetch(
+    `https://servicodados.ibge.gov.br/api/v1/localidades/estados/${estadoId}/municipios`
+  );
+  if (!res.ok) throw new Error("Falha ao carregar municípios IBGE");
+  const data = (await res.json()) as MunicipioIBGE[];
+  return data.sort((a, b) => a.nome.localeCompare(b.nome));
 }
 
 export default function HomeTab() {
@@ -76,6 +107,27 @@ export default function HomeTab() {
   const [buscando, setBuscando] = useState(false);
   const [selecionadoId, setSelecionadoId] = useState<string | null>(null);
   const [areaMudou, setAreaMudou] = useState(false);
+
+  // performance markers custom
+  const [markersReady, setMarkersReady] = useState(false);
+
+  // 🔎 BUSCA (NÃO salva no Firestore)
+  const [buscaModalVisible, setBuscaModalVisible] = useState(false);
+  const [buscaAtiva, setBuscaAtiva] = useState<{ cidade: string; uf: string } | null>(null);
+
+  // IBGE - Estados/Municípios
+  const [estados, setEstados] = useState<EstadoIBGE[]>([]);
+  const [estadoModalVisible, setEstadoModalVisible] = useState(false);
+  const [estadoFiltro, setEstadoFiltro] = useState("");
+  const [estadoSelecionado, setEstadoSelecionado] = useState<EstadoIBGE | null>(null);
+
+  const [municipios, setMunicipios] = useState<MunicipioIBGE[]>([]);
+  const [cidadeInput, setCidadeInput] = useState("");
+  const [cidadeSelecionada, setCidadeSelecionada] = useState<MunicipioIBGE | null>(null);
+  const [cidadeSugestoesVisivel, setCidadeSugestoesVisivel] = useState(false);
+
+  // usado pra preencher o modal com a busca atual / preferências
+  const [prefill, setPrefill] = useState<{ cidade: string; uf: string } | null>(null);
 
   const uid = auth.currentUser?.uid;
 
@@ -131,6 +183,68 @@ export default function HomeTab() {
     debounceRef.current = setTimeout(() => setAreaMudou(true), 300);
   }
 
+  useEffect(() => {
+    setMarkersReady(false);
+    const t = setTimeout(() => setMarkersReady(true), 700);
+    return () => clearTimeout(t);
+  }, [imoveis.length]);
+
+  // ✅ carrega estados IBGE uma vez
+  useEffect(() => {
+    const run = async () => {
+      try {
+        const data = await fetchEstadosIBGE();
+        setEstados(data);
+      } catch (e) {
+        console.log("ERRO estados IBGE:", e);
+      }
+    };
+    run();
+  }, []);
+
+  // ✅ quando selecionar estado, carrega municípios dele
+  useEffect(() => {
+    const run = async () => {
+      if (!estadoSelecionado?.id) {
+        setMunicipios([]);
+        return;
+      }
+      try {
+        const data = await fetchMunicipiosIBGE(estadoSelecionado.id);
+        setMunicipios(data);
+      } catch (e) {
+        console.log("ERRO municipios IBGE:", e);
+        setMunicipios([]);
+      }
+    };
+    run();
+  }, [estadoSelecionado?.id]);
+
+  // ✅ se modal abriu com prefill e já temos estados, seleciona UF automaticamente
+  useEffect(() => {
+    if (!buscaModalVisible) return;
+    if (!prefill) return;
+    if (!estados.length) return;
+
+    const uf = prefill.uf?.toUpperCase();
+    const st = estados.find((e) => e.sigla === uf) ?? null;
+
+    setEstadoSelecionado(st);
+    setCidadeInput(prefill.cidade ?? "");
+    setCidadeSelecionada(null);
+    setCidadeSugestoesVisivel(false);
+  }, [buscaModalVisible, prefill, estados.length]);
+
+  // ✅ quando municípios carregarem, tenta casar a cidade do input e marcar como selecionada (se bater)
+  useEffect(() => {
+    if (!buscaModalVisible) return;
+    if (!municipios.length) return;
+    if (!cidadeInput) return;
+
+    const m = municipios.find((x) => norm(x.nome) === norm(cidadeInput));
+    if (m) setCidadeSelecionada(m);
+  }, [municipios.length, buscaModalVisible]);
+
   // pega localização ao entrar e faz busca inicial
   useEffect(() => {
     const run = async () => {
@@ -168,14 +282,9 @@ export default function HomeTab() {
   useFocusEffect(
     useCallback(() => {
       if (carregando) return;
-
-      // se ainda não fez a busca inicial, não força aqui
       if (!jaBuscouInicialRef.current) return;
 
-      carregarImoveis(
-        { latitude: region.latitude, longitude: region.longitude },
-        region
-      );
+      carregarImoveis({ latitude: region.latitude, longitude: region.longitude }, region);
       setAreaMudou(false);
     }, [
       carregando,
@@ -188,12 +297,14 @@ export default function HomeTab() {
   );
 
   // se usuário não tem GPS (posUsuario null) e ele alterou preferências, centraliza e busca
+  // ⚠️ mas se tiver buscaAtiva, NÃO mexe no mapa
   useEffect(() => {
     const cidade = usuario?.preferencias?.cidade?.trim();
     const uf = usuario?.preferencias?.uf?.trim()?.toUpperCase();
 
     if (!cidade || !uf) return;
     if (posUsuario) return;
+    if (buscaAtiva) return;
 
     const run = async () => {
       try {
@@ -220,7 +331,7 @@ export default function HomeTab() {
     };
 
     run();
-  }, [usuario?.preferencias?.cidade, usuario?.preferencias?.uf, posUsuario, carregarImoveis]);
+  }, [usuario?.preferencias?.cidade, usuario?.preferencias?.uf, posUsuario, carregarImoveis, buscaAtiva]);
 
   const onRegionChangeComplete = (r: Region) => {
     setRegion(r);
@@ -241,6 +352,7 @@ export default function HomeTab() {
         return;
       }
 
+      setBuscaAtiva(null); // volta pro “modo GPS”
       setPosUsuario(loc);
 
       const r: Region = {
@@ -263,6 +375,84 @@ export default function HomeTab() {
 
   const abrirPreferencias = () => {
     router.push("/(tabs)/profile/preferencias");
+  };
+
+  // 🔎 abre modal e preenche com busca atual OU preferências
+  const abrirBusca = () => {
+    const prefCidade = usuario?.preferencias?.cidade?.trim() ?? "";
+    const prefUf = usuario?.preferencias?.uf?.trim()?.toUpperCase() ?? "";
+    const cidade = buscaAtiva?.cidade ?? prefCidade;
+    const uf = (buscaAtiva?.uf ?? prefUf).toUpperCase();
+
+    setPrefill({ cidade, uf });
+    setBuscaModalVisible(true);
+  };
+
+  const aplicarBusca = async (cidade: string, uf: string) => {
+    try {
+      setBuscaModalVisible(false);
+
+      const results = await Location.geocodeAsync(`${cidade}, ${uf}, Brasil`);
+      if (!results?.length) {
+        Alert.alert("Busca", "Não encontrei essa cidade/UF.");
+        return;
+      }
+
+      const { latitude, longitude } = results[0];
+
+      const r: Region = {
+        latitude,
+        longitude,
+        latitudeDelta: 0.08,
+        longitudeDelta: 0.08,
+      };
+
+      setBuscaAtiva({ cidade, uf });
+      setRegion(r);
+      mapRef.current?.animateToRegion(r, 600);
+
+      await carregarImoveis({ latitude: r.latitude, longitude: r.longitude }, r);
+      setAreaMudou(false);
+      jaBuscouInicialRef.current = true;
+    } catch (e: any) {
+      console.log("ERRO aplicarBusca:", e?.code, e?.message, e);
+      Alert.alert("Busca", "Não consegui buscar essa cidade agora.");
+    }
+  };
+
+  const limparBusca = async () => {
+    setBuscaAtiva(null);
+    setBuscaModalVisible(false);
+
+    // limpa campos do modal
+    setEstadoSelecionado(null);
+    setMunicipios([]);
+    setCidadeInput("");
+    setCidadeSelecionada(null);
+    setCidadeSugestoesVisivel(false);
+
+    // volta pro GPS se tiver
+    if (posUsuario) {
+      const r: Region = {
+        latitude: posUsuario.latitude,
+        longitude: posUsuario.longitude,
+        latitudeDelta: 0.06,
+        longitudeDelta: 0.06,
+      };
+      setRegion(r);
+      mapRef.current?.animateToRegion(r, 600);
+      await carregarImoveis({ latitude: r.latitude, longitude: r.longitude }, r);
+      setAreaMudou(false);
+      jaBuscouInicialRef.current = true;
+      return;
+    }
+
+    // senão tenta preferências
+    const cidade = usuario?.preferencias?.cidade?.trim();
+    const uf = usuario?.preferencias?.uf?.trim()?.toUpperCase();
+    if (cidade && uf) {
+      await aplicarBusca(cidade, uf);
+    }
   };
 
   const selecionarImovel = (im: Imovel) => {
@@ -289,6 +479,28 @@ export default function HomeTab() {
     }
   };
 
+  const estadosFiltrados = useMemo(() => {
+    const q = norm(estadoFiltro);
+    if (!q) return estados;
+    return estados.filter((e) => norm(e.nome).includes(q) || norm(e.sigla).includes(q));
+  }, [estados, estadoFiltro]);
+
+  const municipiosIndex = useMemo(
+    () => municipios.map((m) => ({ ...m, _n: norm(m.nome) })),
+    [municipios]
+  );
+
+  const sugestoes = useMemo(() => {
+    if (!estadoSelecionado) return [];
+    const q = norm(cidadeInput);
+    if (!q || q.length < 2) return [];
+    const list = municipiosIndex
+      .filter((m) => m._n.startsWith(q) || m._n.includes(q))
+      .slice(0, 12)
+      .map(({ id, nome }) => ({ id, nome }));
+    return list;
+  }, [cidadeInput, municipiosIndex, estadoSelecionado]);
+
   if (carregando) {
     return (
       <View style={styles.center}>
@@ -297,6 +509,13 @@ export default function HomeTab() {
       </View>
     );
   }
+
+  const labelTopo =
+    buscaAtiva?.cidade && buscaAtiva?.uf
+      ? `${buscaAtiva.cidade} - ${buscaAtiva.uf}`
+      : usuario?.preferencias?.cidade && usuario?.preferencias?.uf
+      ? `${usuario.preferencias.cidade} - ${usuario.preferencias.uf}`
+      : "Buscar cidade…";
 
   return (
     <View style={styles.page}>
@@ -329,25 +548,36 @@ export default function HomeTab() {
                 coordinate={{ latitude: loc.latitude, longitude: loc.longitude }}
                 onPress={() => selecionarMarker(im)}
                 opacity={ativo ? 1 : 0.85}
-              />
+                anchor={{ x: 0.5, y: 1 }}
+                zIndex={ativo ? 999 : 1}
+                tracksViewChanges={!markersReady || ativo}
+              >
+                <PriceMarker precoCentavos={im.precoCentavos ?? 0} selected={ativo} />
+              </Marker>
             );
           })}
         </MapView>
 
-        <Pressable style={styles.searchBar} onPress={abrirPreferencias} hitSlop={8}>
+        {/* 🔎 Barra do topo agora é BUSCA */}
+        <Pressable style={styles.searchBar} onPress={abrirBusca} hitSlop={8}>
           <Ionicons name="search" size={18} color="#5B5B5B" />
+
           <View style={{ flex: 1 }}>
-            <Text style={styles.searchText}>
-              {usuario?.preferencias?.cidade && usuario?.preferencias?.uf
-                ? `${usuario.preferencias.cidade} - ${usuario.preferencias.uf}`
-                : "Buscar cidade…"}
-            </Text>
-            <Text style={styles.searchHint}>Trocar local</Text>
+            <Text style={styles.searchText}>{labelTopo}</Text>
+            <Text style={styles.searchHint}>{buscaAtiva ? "Alterar busca" : "Buscar nesta cidade"}</Text>
           </View>
 
-          <View style={styles.searchChip}>
+          {/* ⚙️ Chip atalho para Preferências */}
+          <Pressable
+            onPress={(e) => {
+              e.stopPropagation?.();
+              abrirPreferencias();
+            }}
+            hitSlop={10}
+            style={styles.searchChip}
+          >
             <Ionicons name="options-outline" size={16} color="#111" />
-          </View>
+          </Pressable>
         </Pressable>
 
         {areaMudou && (
@@ -358,9 +588,7 @@ export default function HomeTab() {
             hitSlop={10}
           >
             <Ionicons name="refresh" size={16} color="#111" />
-            <Text style={styles.buscarAreaText}>
-              {buscando ? "Buscando…" : "Buscar nesta área"}
-            </Text>
+            <Text style={styles.buscarAreaText}>{buscando ? "Buscando…" : "Buscar nesta área"}</Text>
           </Pressable>
         )}
 
@@ -376,9 +604,7 @@ export default function HomeTab() {
       </View>
 
       <View style={styles.listHeader}>
-        <Text style={styles.listTitle}>
-          {buscando ? "Buscando imóveis perto…" : "Imóveis por perto"}
-        </Text>
+        <Text style={styles.listTitle}>{buscando ? "Buscando imóveis perto…" : "Imóveis por perto"}</Text>
 
         {!modoComprador && (
           <Text style={styles.sellerHint}>
@@ -394,9 +620,7 @@ export default function HomeTab() {
         contentContainerStyle={{ padding: 16, paddingTop: 10, gap: 10 }}
         onScrollToIndexFailed={() => {}}
         refreshing={buscando}
-        onRefresh={() =>
-          carregarImoveis({ latitude: region.latitude, longitude: region.longitude }, region)
-        }
+        onRefresh={() => carregarImoveis({ latitude: region.latitude, longitude: region.longitude }, region)}
         renderItem={({ item }) => {
           const ativo = item.id === selecionadoId;
 
@@ -416,6 +640,172 @@ export default function HomeTab() {
           </View>
         }
       />
+
+      {/* MODAL BUSCA */}
+      <Modal
+        visible={buscaModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setBuscaModalVisible(false)}
+      >
+        <Pressable style={styles.modalBackdrop} onPress={() => setBuscaModalVisible(false)} />
+
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.modalSheetWrap}>
+          <View style={styles.modalSheet}>
+            <View style={styles.modalHeaderRow}>
+              <Text style={styles.modalTitle}>Buscar cidade</Text>
+              <Pressable onPress={() => setBuscaModalVisible(false)} hitSlop={10} style={styles.modalIconBtn}>
+                <Ionicons name="close" size={18} color="#111" />
+              </Pressable>
+            </View>
+
+            {/* UF */}
+            <Text style={styles.modalLabel}>Estado (UF)</Text>
+            <Pressable
+              style={styles.modalSelectField}
+              onPress={() => setEstadoModalVisible(true)}
+              hitSlop={8}
+            >
+              <Text style={estadoSelecionado ? styles.modalSelectText : styles.modalSelectPlaceholder}>
+                {estadoSelecionado ? `${estadoSelecionado.nome} (${estadoSelecionado.sigla})` : "Selecionar UF"}
+              </Text>
+              <Ionicons name="chevron-down" size={18} color="#111" />
+            </Pressable>
+
+            {/* Cidade */}
+            <Text style={styles.modalLabel}>Cidade</Text>
+            <TextInput
+              value={cidadeInput}
+              onChangeText={(t) => {
+                setCidadeInput(t);
+                setCidadeSelecionada(null);
+                setCidadeSugestoesVisivel(true);
+              }}
+              onFocus={() => setCidadeSugestoesVisivel(true)}
+              placeholder={estadoSelecionado ? "Digite para filtrar e selecione na lista" : "Selecione a UF primeiro"}
+              placeholderTextColor="#999"
+              style={styles.modalInput}
+              editable={!!estadoSelecionado}
+              autoCapitalize="words"
+            />
+
+            {/* Sugestões */}
+            {estadoSelecionado && cidadeSugestoesVisivel && sugestoes.length > 0 && (
+              <View style={styles.suggestBox}>
+                <FlatList
+                  keyboardShouldPersistTaps="handled"
+                  data={sugestoes}
+                  keyExtractor={(i) => String(i.id)}
+                  renderItem={({ item }) => (
+                    <Pressable
+                      onPress={() => {
+                        setCidadeSelecionada(item);
+                        setCidadeInput(item.nome);
+                        setCidadeSugestoesVisivel(false);
+                      }}
+                      style={styles.suggestItem}
+                    >
+                      <Text style={styles.suggestText}>{item.nome}</Text>
+                    </Pressable>
+                  )}
+                />
+              </View>
+            )}
+
+            {/* ajuda quando digitou mas não selecionou */}
+            {!!estadoSelecionado && !!cidadeInput && !cidadeSelecionada && (
+              <Text style={styles.modalMutedText}>
+                Selecione uma cidade da lista para evitar erro.
+              </Text>
+            )}
+
+            <View style={styles.modalRow}>
+              <Pressable style={[styles.modalBtn, styles.modalBtnGhost]} onPress={limparBusca}>
+                <Text style={styles.modalBtnGhostText}>Limpar</Text>
+              </Pressable>
+
+              <Pressable
+                style={[styles.modalBtn, styles.modalBtnPrimary]}
+                onPress={() => {
+                  if (!estadoSelecionado) {
+                    Alert.alert("Busca", "Selecione a UF.");
+                    return;
+                  }
+                  if (!cidadeSelecionada) {
+                    Alert.alert("Busca", "Selecione a cidade na lista.");
+                    return;
+                  }
+                  aplicarBusca(cidadeSelecionada.nome, estadoSelecionado.sigla);
+                }}
+              >
+                <Text style={styles.modalBtnPrimaryText}>Buscar</Text>
+              </Pressable>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+
+        {/* MODAL UF (IBGE) */}
+        <Modal
+          visible={estadoModalVisible}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setEstadoModalVisible(false)}
+        >
+          <Pressable style={styles.modalBackdrop} onPress={() => setEstadoModalVisible(false)} />
+
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+            style={styles.modalSheetWrap}
+          >
+            <View style={[styles.modalSheet, styles.modalSheetTall]}>
+              <View style={styles.modalHeaderRow}>
+                <Text style={styles.modalTitle}>Selecionar UF</Text>
+                <Pressable onPress={() => setEstadoModalVisible(false)} hitSlop={10} style={styles.modalIconBtn}>
+                  <Ionicons name="close" size={18} color="#111" />
+                </Pressable>
+              </View>
+
+              <TextInput
+                value={estadoFiltro}
+                onChangeText={setEstadoFiltro}
+                placeholder="Buscar estado…"
+                placeholderTextColor="#999"
+                style={styles.modalSearchInput}
+                autoCapitalize="words"
+              />
+
+              <FlatList
+                data={estadosFiltrados}
+                keyExtractor={(i) => String(i.id)}
+                keyboardShouldPersistTaps="handled"
+                ItemSeparatorComponent={() => <View style={styles.modalDivider} />}
+                renderItem={({ item }) => {
+                  const active = estadoSelecionado?.id === item.id;
+                  return (
+                    <Pressable
+                      style={[styles.modalListItem, active && styles.modalListItemActive]}
+                      onPress={() => {
+                        setEstadoSelecionado(item);
+                        setEstadoModalVisible(false);
+
+                        // ao trocar UF manualmente, zera cidade pra não ficar inválida
+                        setCidadeInput("");
+                        setCidadeSelecionada(null);
+                        setCidadeSugestoesVisivel(false);
+                      }}
+                    >
+                      <Text style={styles.modalListItemText}>
+                        {item.nome} ({item.sigla})
+                      </Text>
+                      {active && <Ionicons name="checkmark" size={18} color="#5A9F78" />}
+                    </Pressable>
+                  );
+                }}
+              />
+            </View>
+          </KeyboardAvoidingView>
+        </Modal>
+      </Modal>
     </View>
   );
 }

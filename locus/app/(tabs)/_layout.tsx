@@ -31,9 +31,15 @@ export default function TabsLayout() {
 
     Alert.alert(
       "Ativar modo vendedor",
-      "Para anunciar imóveis, ative a opção Vendedor nas Preferências."
+      "Para anunciar imóveis, ative a opção Vendedor nas Preferências.",
+      [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Ir para Preferências",
+          onPress: () => router.push("/(tabs)/profile/preferencias"),
+        },
+      ]
     );
-    router.push("/(tabs)/profile/preferencias");
   }
 
   return (
@@ -50,8 +56,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          popToTopOnBlur: true, // ✅ limpa o stack ao sair da aba
-
+          popToTopOnBlur: true,
           tabBarIcon: ({ focused, size }) => (
             <Ionicons
               name={focused ? "map" : "map-outline"}
@@ -67,11 +72,20 @@ export default function TabsLayout() {
         name="novo"
         options={{
           tabBarIcon: () => null,
-          tabBarButton: (props) => (
+          tabBarButton: ({
+            accessibilityLabel,
+            accessibilityRole,
+            accessibilityState,
+            testID,
+            style,
+          }) => (
             <Pressable
-              {...props}
+              testID={testID}
+              accessibilityLabel={accessibilityLabel}
+              accessibilityRole={accessibilityRole}
+              accessibilityState={accessibilityState}
               onPress={handleAddPress}
-              style={[props.style, styles.addWrapper]}
+              style={[style as any, styles.addWrapper]}
             >
               <View style={styles.addButton}>
                 <Ionicons name="add" size={28} color={CORES.branco} />
@@ -105,11 +119,24 @@ export default function TabsLayout() {
               color={focused ? CORES.primario : CORES.texto}
             />
           ),
-          tabBarButton: (props) => (
+          tabBarButton: ({
+            children,
+            accessibilityLabel,
+            accessibilityRole,
+            accessibilityState,
+            testID,
+            style,
+          }) => (
             <Pressable
-              {...props}
+              testID={testID}
+              accessibilityLabel={accessibilityLabel}
+              accessibilityRole={accessibilityRole}
+              accessibilityState={accessibilityState}
               onPress={() => router.replace("/(tabs)/profile")}
-            />
+              style={style as any}
+            >
+              {children}
+            </Pressable>
           ),
         }}
       />

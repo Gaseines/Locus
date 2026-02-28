@@ -367,7 +367,7 @@ export default function NovoImovelScreen() {
         publicarAgora ? "Imóvel publicado e já aparece no mapa." : "Imóvel salvo como rascunho."
       );
 
-      router.replace("/(tabs)/index");
+      router.replace("/(tabs)");
     } catch (e: any) {
       Alert.alert("Erro", e?.message ?? "Não foi possível salvar o imóvel.");
     } finally {
