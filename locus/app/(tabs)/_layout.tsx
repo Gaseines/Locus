@@ -51,7 +51,7 @@ export default function TabsLayout() {
         name="index"
         options={{
           popToTopOnBlur: true, // ✅ limpa o stack ao sair da aba
-          
+
           tabBarIcon: ({ focused, size }) => (
             <Ionicons
               name={focused ? "map" : "map-outline"}
