@@ -27,7 +27,10 @@ export async function getUsuario(uid: string): Promise<Usuario | null> {
   return data as Usuario;
 }
 
-export async function criarOuAtualizarUsuario(uid: string, campos: Partial<Usuario>) {
+export async function criarOuAtualizarUsuario(
+  uid: string,
+  campos: Partial<Usuario>
+) {
   const { error } = await supabase
     .from("usuarios")
     .upsert({ id: uid, ...campos });
@@ -46,19 +49,22 @@ export async function salvarPreferencias(
     idMunicipio?: number | null;
   }
 ) {
-  const { error } = await supabase
-    .from("usuarios")
-    .upsert({
-      id: uid,
-      funcao_comprador: params.funcaoComprador,
-      funcao_vendedor: params.funcaoVendedor,
-      pref_cidade: params.cidade,
-      pref_uf: params.uf,
-      pref_id_estado: params.idEstado ?? null,
-      pref_id_municipio: params.idMunicipio ?? null,
-      onboarding_concluido: true,
-    });
+  const { error } = await supabase.from("usuarios").upsert({
+    id: uid,
+    funcao_comprador: params.funcaoComprador,
+    funcao_vendedor: params.funcaoVendedor,
+    pref_cidade: params.cidade,
+    pref_uf: params.uf,
+    pref_id_estado: params.idEstado ?? null,
+    pref_id_municipio: params.idMunicipio ?? null,
+    onboarding_concluido: true,
+  });
 
+  if (error) throw error;
+}
+
+export async function signOutUser() {
+  const { error } = await supabase.auth.signOut();
   if (error) throw error;
 }
 
@@ -66,12 +72,12 @@ export function subscribeUsuario(
   uid: string,
   callback: (usuario: Usuario | null) => void
 ) {
-  // Busca inicial
+  // ✅ Busca inicial
   getUsuario(uid).then(callback);
 
-  // Realtime
+  // ✅ Realtime — ouve qualquer mudança na linha do usuário
   const channel = supabase
-    .channel("usuario-perfil")
+    .channel(`usuario-${uid}`)
     .on(
       "postgres_changes",
       {
@@ -80,14 +86,15 @@ export function subscribeUsuario(
         table: "usuarios",
         filter: `id=eq.${uid}`,
       },
-      () => getUsuario(uid).then(callback)
+      async () => {
+        // rebusca ao invés de usar o payload — mais confiável
+        const usuario = await getUsuario(uid);
+        callback(usuario);
+      }
     )
     .subscribe();
 
-  return () => supabase.removeChannel(channel);
-}
-
-export async function signOutUser() {
-  const { error } = await supabase.auth.signOut();
-  if (error) throw error;
+  return () => {
+    supabase.removeChannel(channel);
+  };
 }

@@ -13,6 +13,9 @@ export async function signUpWithEmail(email: string, password: string) {
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
+    options: {
+      emailRedirectTo: "https://gaseines.github.io/confirm-locus/confirmado.html", // ← redireciona pro app
+    },
   });
   if (error) throw error;
   return data;

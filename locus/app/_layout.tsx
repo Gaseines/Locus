@@ -13,24 +13,28 @@ export default function RootLayout() {
   const [session, setSession] = useState<Session | null>(null);
 
   const [usuarioLoading, setUsuarioLoading] = useState(false);
-  const [usuarioDoc, setUsuarioDoc] = useState<Usuario | null>(null);
+  const [usuarioDoc, setUsuarioDoc] = useState<Usuario | null | undefined>(
+    undefined // ← undefined = ainda não carregou, null = não existe
+  );
 
-  // 1) Auth — escuta mudanças de sessão
+  // 1) Auth
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
       setAuthLoading(false);
     });
 
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, s) => {
-      setSession(s);
-      setAuthLoading(false);
-    });
+    const { data: listener } = supabase.auth.onAuthStateChange(
+      (_event, s) => {
+        setSession(s);
+        setAuthLoading(false);
+      }
+    );
 
     return () => listener.subscription.unsubscribe();
   }, []);
 
-  // 2) Usuário doc — escuta em realtime
+  // 2) Usuário doc
   useEffect(() => {
     if (!session?.user?.id) {
       setUsuarioDoc(null);
@@ -45,33 +49,40 @@ export default function RootLayout() {
       setUsuarioLoading(false);
     });
 
-    return () => {
-      unsub();
-    }; // ← só essa linha muda
+    return () => { unsub(); };
   }, [session?.user?.id]);
 
   // 3) Guard de rotas
   useEffect(() => {
+    // Ainda carregando auth
     if (authLoading) return;
+
+    // Ainda carregando doc (só bloqueia se tiver sessão)
+    if (session && usuarioLoading) return;
+
+    // Doc ainda não foi buscado (undefined = aguardando primeira resposta)
+    if (session && usuarioDoc === undefined) return;
 
     const grupoAtual = segments[0];
     const estaNoAuth = grupoAtual === "(auth)";
     const estaNoOnboarding = grupoAtual === "(onboarding)";
+    const estaNoTabs = grupoAtual === "(tabs)";
 
+    // Não logado → login
     if (!session) {
       if (!estaNoAuth) router.replace("/(auth)/login");
       return;
     }
 
-    if (usuarioLoading) return;
-
     const onboardingConcluido = usuarioDoc?.onboarding_concluido === true;
 
+    // Logado mas onboarding pendente → onboarding
     if (!onboardingConcluido) {
       if (!estaNoOnboarding) router.replace("/(onboarding)");
       return;
     }
 
+    // Logado e onboarding ok → tabs
     if (estaNoAuth || estaNoOnboarding) {
       router.replace("/(tabs)");
     }
