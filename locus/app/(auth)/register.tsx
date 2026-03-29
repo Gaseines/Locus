@@ -1,19 +1,12 @@
 import React, { useMemo, useState } from "react";
 import {
-  View,
-  Text,
-  Pressable,
-  Image,
-  KeyboardAvoidingView,
-  Platform,
-  TextInput,
-  ActivityIndicator,
+  View, Text, Pressable, Image, KeyboardAvoidingView,
+  Platform, TextInput, ActivityIndicator, StyleSheet,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
-import { doc, setDoc, serverTimestamp } from "firebase/firestore";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
-import { auth, db } from "@/src/firebase";
+import { signUpWithEmail } from "@/src/services/auth";
 import { styles } from "./login.styles";
 
 function onlyDigits(value: string) {
@@ -25,7 +18,7 @@ export default function RegisterScreen() {
 
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
-  const [phone, setPhone] = useState(""); // WhatsApp (opcional)
+  const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
@@ -35,8 +28,11 @@ export default function RegisterScreen() {
   const [emailError, setEmailError] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [generalError, setGeneralError] = useState<string | null>(null);
-
   const [submitting, setSubmitting] = useState(false);
+
+  // ✅ Tela de confirmação de email
+  const [aguardandoConfirmacao, setAguardandoConfirmacao] = useState(false);
+  const [emailCadastrado, setEmailCadastrado] = useState("");
 
   const emailOk = useMemo(() => {
     const e = email.trim().toLowerCase();
@@ -44,13 +40,12 @@ export default function RegisterScreen() {
   }, [email]);
 
   const passwordOk = useMemo(() => password.length >= 6, [password]);
-
   const firstNameOk = useMemo(() => firstName.trim().length >= 2, [firstName]);
   const lastNameOk = useMemo(() => lastName.trim().length >= 2, [lastName]);
 
   const phoneDigits = useMemo(() => onlyDigits(phone), [phone]);
   const phoneOk = useMemo(() => {
-    if (phoneDigits.length === 0) return true; // opcional
+    if (phoneDigits.length === 0) return true;
     return phoneDigits.length >= 10 && phoneDigits.length <= 11;
   }, [phoneDigits]);
 
@@ -59,11 +54,6 @@ export default function RegisterScreen() {
   const handleRegister = async () => {
     if (submitting) return;
 
-    const e = email.trim().toLowerCase();
-    const f = firstName.trim();
-    const l = lastName.trim();
-
-    // limpa erros
     setFirstNameError(null);
     setLastNameError(null);
     setPhoneError(null);
@@ -71,68 +61,37 @@ export default function RegisterScreen() {
     setPasswordError(null);
     setGeneralError(null);
 
-    // validações
-    if (!firstNameOk) {
-      setFirstNameError("Digite seu nome (mínimo 2 letras).");
-      return;
-    }
-    if (!lastNameOk) {
-      setLastNameError("Digite seu sobrenome (mínimo 2 letras).");
-      return;
-    }
-    if (!phoneOk) {
-      setPhoneError("Digite um WhatsApp válido (DDD + número).");
-      return;
-    }
-    if (!emailOk) {
-      setEmailError("Digite um email válido.");
-      return;
-    }
-    if (!passwordOk) {
-      setPasswordError("A senha deve ter pelo menos 6 caracteres.");
-      return;
-    }
+    if (!firstNameOk) { setFirstNameError("Digite seu nome (mínimo 2 letras)."); return; }
+    if (!lastNameOk) { setLastNameError("Digite seu sobrenome (mínimo 2 letras)."); return; }
+    if (!phoneOk) { setPhoneError("Digite um WhatsApp válido (DDD + número)."); return; }
+    if (!emailOk) { setEmailError("Digite um email válido."); return; }
+    if (!passwordOk) { setPasswordError("A senha deve ter pelo menos 6 caracteres."); return; }
 
     try {
       setSubmitting(true);
 
-      const cred = await createUserWithEmailAndPassword(auth, e, password);
+      await signUpWithEmail(email.trim().toLowerCase(), password);
 
-      // 1) salva nome no Auth
-      const nomeCompleto = `${f} ${l}`.trim();
-      await updateProfile(cred.user, { displayName: nomeCompleto });
-
-      // 2) salva perfil completo no Firestore (PT-BR)
-      await setDoc(doc(db, "usuarios", cred.user.uid), {
-        primeiroNome: f,
-        sobrenome: l,
-        nomeCompleto,
+      // ✅ Salva os dados no dispositivo para usar no primeiro login
+      await AsyncStorage.setItem("@locus:pending_registro", JSON.stringify({
+        primeiro_nome: firstName.trim(),
+        sobrenome: lastName.trim(),
         telefone: phoneDigits.length ? phoneDigits : null,
-        email: e,
+        email: email.trim().toLowerCase(),
+      }));
 
-        // defaults do onboarding (pra manter tudo consistente)
-        onboardingConcluido: false,
-        onboardingPulado: false,
-        funcoes: { comprador: true, vendedor: false },
-        // preferencias: null, // opcional: pode omitir
+      // ✅ Mostra tela de confirmação (sem navegar)
+      setEmailCadastrado(email.trim().toLowerCase());
+      setAguardandoConfirmacao(true);
 
-        criadoEm: serverTimestamp(),
-        atualizadoEm: serverTimestamp(),
-      });
-
-      // deixa o Auth Guard decidir (ele vai mandar pro onboarding)
-      router.replace("/");
     } catch (err: any) {
-      const code = err?.code;
-
-      if (code === "auth/email-already-in-use") {
+      const msg = err?.message ?? "";
+      if (msg.includes("already registered") || msg.includes("already been registered")) {
         setEmailError("Esse email já está cadastrado. Tente entrar.");
-      } else if (code === "auth/invalid-email") {
-        setEmailError("Email inválido.");
-      } else if (code === "auth/weak-password") {
+      } else if (msg.includes("weak") || msg.includes("password")) {
         setPasswordError("Senha fraca. Use pelo menos 6 caracteres.");
-      } else if (code === "auth/network-request-failed") {
-        setGeneralError("Sem conexão. Verifique sua internet e tente novamente.");
+      } else if (msg.includes("network") || msg.includes("fetch")) {
+        setGeneralError("Sem conexão. Verifique sua internet.");
       } else {
         setGeneralError("Não foi possível criar sua conta. Tente novamente.");
       }
@@ -141,6 +100,40 @@ export default function RegisterScreen() {
     }
   };
 
+  // ─── Tela de aguardar confirmação ────────────────────────────────────────────
+  if (aguardandoConfirmacao) {
+    return (
+      <View style={confirmStyles.page}>
+        <View style={confirmStyles.card}>
+          <Text style={confirmStyles.icon}>📧</Text>
+          <Text style={confirmStyles.title}>Confirme seu email</Text>
+          <Text style={confirmStyles.sub}>
+            Enviamos um link de confirmação para:
+          </Text>
+          <Text style={confirmStyles.email}>{emailCadastrado}</Text>
+          <Text style={confirmStyles.hint}>
+            Após confirmar, volte aqui e faça login com seu email e senha.
+          </Text>
+
+          <Pressable
+            style={confirmStyles.primaryBtn}
+            onPress={() => router.replace("/(auth)/login")}
+          >
+            <Text style={confirmStyles.primaryText}>Ir para o login</Text>
+          </Pressable>
+
+          <Pressable
+            style={confirmStyles.secondaryBtn}
+            onPress={() => setAguardandoConfirmacao(false)}
+          >
+            <Text style={confirmStyles.secondaryText}>Voltar e corrigir dados</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
+
+  // ─── Formulário de cadastro ───────────────────────────────────────────────────
   return (
     <KeyboardAvoidingView
       style={styles.container}
@@ -157,58 +150,39 @@ export default function RegisterScreen() {
       </Text>
 
       <View style={styles.card}>
-        {/* Nome */}
         <View style={styles.inputWrap}>
           <Text style={styles.label}>Nome</Text>
           <TextInput
             value={firstName}
-            onChangeText={(t) => {
-              setFirstName(t);
-              if (firstNameError) setFirstNameError(null);
-              if (generalError) setGeneralError(null);
-            }}
+            onChangeText={(t) => { setFirstName(t); setFirstNameError(null); }}
             placeholder="Ex.: Gabriel"
             placeholderTextColor="#999"
             autoCapitalize="words"
             style={[styles.input, firstNameError ? styles.inputError : null]}
             editable={!submitting}
           />
-          {firstNameError ? (
-            <Text style={styles.errorText}>{firstNameError}</Text>
-          ) : null}
+          {firstNameError ? <Text style={styles.errorText}>{firstNameError}</Text> : null}
         </View>
 
-        {/* Sobrenome */}
         <View style={styles.inputWrap}>
           <Text style={styles.label}>Sobrenome</Text>
           <TextInput
             value={lastName}
-            onChangeText={(t) => {
-              setLastName(t);
-              if (lastNameError) setLastNameError(null);
-              if (generalError) setGeneralError(null);
-            }}
+            onChangeText={(t) => { setLastName(t); setLastNameError(null); }}
             placeholder="Ex.: Nunes"
             placeholderTextColor="#999"
             autoCapitalize="words"
             style={[styles.input, lastNameError ? styles.inputError : null]}
             editable={!submitting}
           />
-          {lastNameError ? (
-            <Text style={styles.errorText}>{lastNameError}</Text>
-          ) : null}
+          {lastNameError ? <Text style={styles.errorText}>{lastNameError}</Text> : null}
         </View>
 
-        {/* WhatsApp (opcional) */}
         <View style={styles.inputWrap}>
           <Text style={styles.label}>WhatsApp (opcional)</Text>
           <TextInput
             value={phone}
-            onChangeText={(t) => {
-              setPhone(t);
-              if (phoneError) setPhoneError(null);
-              if (generalError) setGeneralError(null);
-            }}
+            onChangeText={(t) => { setPhone(t); setPhoneError(null); }}
             placeholder="(47) 99999-9999"
             placeholderTextColor="#999"
             keyboardType="phone-pad"
@@ -218,16 +192,11 @@ export default function RegisterScreen() {
           {phoneError ? <Text style={styles.errorText}>{phoneError}</Text> : null}
         </View>
 
-        {/* Email */}
         <View style={styles.inputWrap}>
           <Text style={styles.label}>Email</Text>
           <TextInput
             value={email}
-            onChangeText={(t) => {
-              setEmail(t);
-              if (emailError) setEmailError(null);
-              if (generalError) setGeneralError(null);
-            }}
+            onChangeText={(t) => { setEmail(t); setEmailError(null); setGeneralError(null); }}
             placeholder="seuemail@exemplo.com"
             placeholderTextColor="#999"
             autoCapitalize="none"
@@ -239,25 +208,18 @@ export default function RegisterScreen() {
           {emailError ? <Text style={styles.errorText}>{emailError}</Text> : null}
         </View>
 
-        {/* Senha */}
         <View style={styles.inputWrap}>
           <Text style={styles.label}>Senha</Text>
           <TextInput
             value={password}
-            onChangeText={(t) => {
-              setPassword(t);
-              if (passwordError) setPasswordError(null);
-              if (generalError) setGeneralError(null);
-            }}
+            onChangeText={(t) => { setPassword(t); setPasswordError(null); }}
             placeholder="••••••••"
             placeholderTextColor="#999"
             secureTextEntry
             style={[styles.input, passwordError ? styles.inputError : null]}
             editable={!submitting}
           />
-          {passwordError ? (
-            <Text style={styles.errorText}>{passwordError}</Text>
-          ) : null}
+          {passwordError ? <Text style={styles.errorText}>{passwordError}</Text> : null}
         </View>
 
         <Pressable
@@ -268,11 +230,9 @@ export default function RegisterScreen() {
           onPress={handleRegister}
           disabled={!formOk || submitting}
         >
-          {submitting ? (
-            <ActivityIndicator />
-          ) : (
-            <Text style={styles.emailButtonText}>Criar conta</Text>
-          )}
+          {submitting
+            ? <ActivityIndicator />
+            : <Text style={styles.emailButtonText}>Criar conta</Text>}
         </Pressable>
 
         {generalError ? <Text style={styles.errorText}>{generalError}</Text> : null}
@@ -284,3 +244,45 @@ export default function RegisterScreen() {
     </KeyboardAvoidingView>
   );
 }
+
+const confirmStyles = StyleSheet.create({
+  page: {
+    flex: 1,
+    backgroundColor: "#F8F8F6",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+  },
+  card: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: "#E5E5E5",
+    alignItems: "center",
+    width: "100%",
+  },
+  icon: { fontSize: 48, marginBottom: 12 },
+  title: { fontSize: 20, fontWeight: "900", color: "#111", marginBottom: 8 },
+  sub: { fontSize: 14, color: "#5b5b5b", textAlign: "center" },
+  email: {
+    fontSize: 15, fontWeight: "800", color: "#5A9F78",
+    marginTop: 6, marginBottom: 12, textAlign: "center",
+  },
+  hint: {
+    fontSize: 13, color: "#5b5b5b", opacity: 0.8,
+    textAlign: "center", marginBottom: 24, lineHeight: 20,
+  },
+  primaryBtn: {
+    height: 48, borderRadius: 10, alignItems: "center",
+    justifyContent: "center", backgroundColor: "#5A9F78",
+    width: "100%", marginBottom: 10,
+  },
+  primaryText: { fontWeight: "900", color: "#fff", fontSize: 15 },
+  secondaryBtn: {
+    height: 48, borderRadius: 10, alignItems: "center",
+    justifyContent: "center", borderWidth: 1,
+    borderColor: "#E5E5E5", width: "100%",
+  },
+  secondaryText: { fontWeight: "800", color: "#5b5b5b" },
+});

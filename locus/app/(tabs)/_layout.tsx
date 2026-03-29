@@ -2,25 +2,44 @@ import { Tabs, router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useEffect, useState } from "react";
 import { Alert, Pressable, StyleSheet, View } from "react-native";
-import { doc, onSnapshot } from "firebase/firestore";
 
-import { auth, db } from "@/src/firebase";
+import { supabase } from "@/src/supabase";
+import { getUsuario } from "@/src/services/usuariosSupa";
 import { CORES } from "@/src/theme/cores";
 
 export default function TabsLayout() {
   const [isVendedor, setIsVendedor] = useState(false);
 
   useEffect(() => {
-    const uid = auth.currentUser?.uid;
-    if (!uid) return;
+    const run = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
 
-    const ref = doc(db, "usuarios", uid);
-    const unsub = onSnapshot(ref, (snap) => {
-      const data: any = snap.exists() ? snap.data() : null;
-      setIsVendedor(!!data?.funcoes?.vendedor);
-    });
+      const usuario = await getUsuario(user.id);
+      setIsVendedor(!!usuario?.funcao_vendedor);
+    };
 
-    return () => unsub();
+    run();
+
+    // Escuta mudanças em realtime
+    const channel = supabase
+      .channel("tabs-layout-usuario")
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "usuarios",
+        },
+        () => run(),
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   function handleAddPress() {
@@ -38,7 +57,7 @@ export default function TabsLayout() {
           text: "Ir para Preferências",
           onPress: () => router.push("/(tabs)/profile/preferencias"),
         },
-      ]
+      ],
     );
   }
 
@@ -67,7 +86,6 @@ export default function TabsLayout() {
         }}
       />
 
-      {/* Botão + */}
       <Tabs.Screen
         name="novo"
         options={{
@@ -108,7 +126,6 @@ export default function TabsLayout() {
         }}
       />
 
-      {/* ✅ FIX: Perfil sempre abre na raiz */}
       <Tabs.Screen
         name="profile"
         options={{
@@ -140,15 +157,19 @@ export default function TabsLayout() {
           ),
         }}
       />
+      <Tabs.Screen
+        name="imovel/[id]"
+        options={{
+          href: null, // não aparece na tab bar
+          headerShown: false,
+        }}
+      />
     </Tabs>
   );
 }
 
 const styles = StyleSheet.create({
-  addWrapper: {
-    alignItems: "center",
-    justifyContent: "center",
-  },
+  addWrapper: { alignItems: "center", justifyContent: "center" },
   addButton: {
     width: 56,
     height: 56,

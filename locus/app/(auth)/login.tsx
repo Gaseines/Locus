@@ -1,108 +1,15 @@
 import React, { useMemo, useState } from "react";
 import {
-  View,
-  Text,
-  Pressable,
-  Platform,
-  Image,
-  KeyboardAvoidingView,
-  TextInput,
-  ActivityIndicator,
-  Alert,
+  View, Text, Pressable, Platform, Image,
+  KeyboardAvoidingView, TextInput, ActivityIndicator,
 } from "react-native";
 import { useRouter } from "expo-router";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
-// Firebase
-import { signInWithEmailAndPassword, User } from "firebase/auth";
-import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
-import { auth, db } from "@/src/firebase";
-
-// Styles
+import { signInWithEmail } from "@/src/services/auth";
+import { criarOuAtualizarUsuario } from "@/src/services/usuariosSupa";
+import { supabase } from "@/src/supabase";
 import { styles } from "./login.styles";
-
-type OldUserDoc = {
-  firstName?: string;
-  lastName?: string;
-  fullName?: string;
-  phone?: string | null;
-  email?: string;
-  createdAt?: any;
-  updatedAt?: any;
-};
-
-async function ensureUsuarioDoc(user: User) {
-  const uid = user.uid;
-  const email = (user.email ?? "").toLowerCase();
-
-  const refUsuarios = doc(db, "usuarios", uid);
-  const snapUsuarios = await getDoc(refUsuarios);
-
-  // ✅ Já existe: só garante atualizadoEm pra manter “vivo”
-  if (snapUsuarios.exists()) {
-    await setDoc(
-      refUsuarios,
-      { atualizadoEm: serverTimestamp(), email },
-      { merge: true }
-    );
-    return;
-  }
-
-  // 🧠 Migração automática (se você tinha doc antigo em "users")
-  const refUsersOld = doc(db, "users", uid);
-  const snapOld = await getDoc(refUsersOld);
-
-  if (snapOld.exists()) {
-    const old = snapOld.data() as OldUserDoc;
-
-    const primeiroNome = (old.firstName ?? "").trim();
-    const sobrenome = (old.lastName ?? "").trim();
-    const nomeCompleto =
-      (old.fullName ?? `${primeiroNome} ${sobrenome}`.trim()).trim() ||
-      (user.displayName ?? "").trim() ||
-      "Usuário";
-
-    await setDoc(
-      refUsuarios,
-      {
-        primeiroNome: primeiroNome || undefined,
-        sobrenome: sobrenome || undefined,
-        nomeCompleto,
-        telefone: old.phone ?? null,
-        email: (old.email ?? email).toLowerCase(),
-
-        // defaults do onboarding (pra ficar consistente com o app)
-        onboardingConcluido: false,
-        onboardingPulado: false,
-        funcoes: { comprador: true, vendedor: false },
-
-        // tenta reaproveitar datas antigas se existirem
-        criadoEm: old.createdAt ?? serverTimestamp(),
-        atualizadoEm: serverTimestamp(),
-      },
-      { merge: true }
-    );
-
-    return;
-  }
-
-  // ✅ Cria do zero (conta antiga do Auth sem doc no Firestore, por exemplo)
-  const displayName = (user.displayName ?? "").trim();
-  await setDoc(
-    refUsuarios,
-    {
-      nomeCompleto: displayName || "Usuário",
-      email,
-
-      onboardingConcluido: false,
-      onboardingPulado: false,
-      funcoes: { comprador: true, vendedor: false },
-
-      criadoEm: serverTimestamp(),
-      atualizadoEm: serverTimestamp(),
-    },
-    { merge: true }
-  );
-}
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -114,7 +21,6 @@ export default function LoginScreen() {
   const [generalError, setGeneralError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  // validação básica (só pra UI)
   const emailOk = useMemo(() => {
     const e = email.trim().toLowerCase();
     return e.length > 3 && e.includes("@") && e.includes(".");
@@ -125,67 +31,61 @@ export default function LoginScreen() {
   const handleEmailLogin = async () => {
     if (submitting) return;
 
-    const e = email.trim().toLowerCase();
-
     setEmailError(null);
     setPasswordError(null);
     setGeneralError(null);
 
-    if (!emailOk) {
-      setEmailError("Digite um email válido.");
-      return;
-    }
-
-    if (!passwordOk) {
-      setPasswordError("A senha deve ter pelo menos 6 caracteres.");
-      return;
-    }
+    if (!emailOk) { setEmailError("Digite um email válido."); return; }
+    if (!passwordOk) { setPasswordError("A senha deve ter pelo menos 6 caracteres."); return; }
 
     try {
       setSubmitting(true);
 
-      const cred = await signInWithEmailAndPassword(auth, e, password);
+      const data = await signInWithEmail(email.trim().toLowerCase(), password);
 
-      // ✅ garante que o doc em "usuarios" exista
-      await ensureUsuarioDoc(cred.user);
+      if (data.user) {
+        // ✅ Tenta recuperar dados pendentes do cadastro
+        const pendingRaw = await AsyncStorage.getItem("@locus:pending_registro");
 
-      // ✅ melhor: deixa o Auth Guard decidir (tabs/onboarding)
+        if (pendingRaw) {
+          const pending = JSON.parse(pendingRaw);
+          await criarOuAtualizarUsuario(data.user.id, {
+            email: data.user.email ?? "",
+            primeiro_nome: pending.primeiro_nome,
+            sobrenome: pending.sobrenome,
+            telefone: pending.telefone,
+            funcao_comprador: true,
+            funcao_vendedor: false,
+            onboarding_concluido: false,
+            onboarding_pulado: false,
+          });
+
+          // ✅ Limpa os dados temporários
+          await AsyncStorage.removeItem("@locus:pending_registro");
+        } else {
+          // Login normal — só garante que o doc existe
+          await criarOuAtualizarUsuario(data.user.id, {
+            email: data.user.email ?? "",
+          });
+        }
+      }
+
       router.replace("/");
     } catch (err: any) {
-      const code = err?.code;
+      const msg = err?.message ?? "";
 
-      if (
-        code === "auth/user-not-found" ||
-        code === "auth/wrong-password" ||
-        code === "auth/invalid-credential" ||
-        code === "auth/invalid-login-credentials"
-      ) {
-        setGeneralError("Email ou senha incorretos. Se você não tem conta, crie uma agora!");
-        return;
+      if (msg.includes("Invalid login credentials") || msg.includes("invalid_credentials")) {
+        setGeneralError("Email ou senha incorretos. Se não tem conta, crie uma!");
+      } else if (msg.includes("Email not confirmed")) {
+        setGeneralError("Você ainda não confirmou seu email. Verifique sua caixa de entrada.");
+      } else if (msg.includes("network") || msg.includes("fetch")) {
+        setGeneralError("Sem conexão. Verifique sua internet.");
+      } else {
+        setGeneralError("Não foi possível entrar agora. Tente novamente.");
       }
-
-      if (code === "auth/too-many-requests") {
-        setGeneralError("Muitas tentativas. Aguarde um pouco e tente novamente.");
-        return;
-      }
-
-      if (code === "auth/network-request-failed") {
-        setGeneralError("Sem conexão. Verifique sua internet e tente novamente.");
-        return;
-      }
-
-      setGeneralError("Não foi possível entrar agora. Tente novamente.");
     } finally {
       setSubmitting(false);
     }
-  };
-
-  const handleGoogle = () => {
-    console.log("Google login (placeholder)");
-  };
-
-  const handleApple = () => {
-    console.log("Apple login (placeholder)");
   };
 
   return (
@@ -200,7 +100,6 @@ export default function LoginScreen() {
       />
       <Text style={styles.subtitle}>Entre para continuar</Text>
 
-      {/* Login com Email */}
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Entrar com Email:</Text>
 
@@ -208,11 +107,7 @@ export default function LoginScreen() {
           <Text style={styles.label}>Email</Text>
           <TextInput
             value={email}
-            onChangeText={(t) => {
-              setEmail(t);
-              if (emailError) setEmailError(null);
-              if (generalError) setGeneralError(null);
-            }}
+            onChangeText={(t) => { setEmail(t); setEmailError(null); setGeneralError(null); }}
             placeholder="seuemail@exemplo.com"
             placeholderTextColor="#999"
             autoCapitalize="none"
@@ -228,11 +123,7 @@ export default function LoginScreen() {
           <Text style={styles.label}>Senha</Text>
           <TextInput
             value={password}
-            onChangeText={(t) => {
-              setPassword(t);
-              if (passwordError) setPasswordError(null);
-              if (generalError) setGeneralError(null);
-            }}
+            onChangeText={(t) => { setPassword(t); setPasswordError(null); setGeneralError(null); }}
             placeholder="••••••••"
             placeholderTextColor="#999"
             secureTextEntry
@@ -252,11 +143,9 @@ export default function LoginScreen() {
           onPress={handleEmailLogin}
           disabled={!emailOk || !passwordOk || submitting}
         >
-          {submitting ? (
-            <ActivityIndicator />
-          ) : (
-            <Text style={styles.emailButtonText}>Entrar</Text>
-          )}
+          {submitting
+            ? <ActivityIndicator />
+            : <Text style={styles.emailButtonText}>Entrar</Text>}
         </Pressable>
 
         {generalError ? <Text style={styles.errorText}>{generalError}</Text> : null}
@@ -265,45 +154,6 @@ export default function LoginScreen() {
           <Text style={styles.link}>Criar conta</Text>
         </Pressable>
       </View>
-
-      <View style={styles.dividerRow}>
-        <View style={styles.dividerLine} />
-        <Text style={styles.dividerText}>ou</Text>
-        <View style={styles.dividerLine} />
-      </View>
-
-      <Pressable style={[styles.button, styles.google]} onPress={handleGoogle} disabled={submitting}>
-        <Image
-          source={require("../../assets/images/google-g.png")}
-          resizeMode="contain"
-          style={styles.Icon}
-        />
-        <Text style={styles.buttonText}>Continuar com Google</Text>
-      </Pressable>
-
-      {Platform.OS === "ios" && (
-        <Pressable style={[styles.button, styles.apple]} onPress={handleApple} disabled={submitting}>
-          <Image
-            source={require("../../assets/images/apple.png")}
-            resizeMode="contain"
-            style={styles.Icon}
-          />
-          <Text style={styles.appleText}>Continuar com Apple</Text>
-        </Pressable>
-      )}
-
-      {/* Dev mode: com Auth Guard ativo, isso não funciona sem autenticar */}
-      <Pressable
-        style={[styles.button, styles.dev]}
-        onPress={() => Alert.alert("Modo dev", "Com o Auth Guard ativo, esse botão não entra sem autenticar.")}
-        disabled={submitting}
-      >
-        <Text style={styles.devText}>Entrar (modo dev)</Text>
-      </Pressable>
-
-      <Text style={styles.helper}>
-        (Apple aparece só no iPhone. Google/Apple vamos conectar depois.)
-      </Text>
     </KeyboardAvoidingView>
   );
 }

@@ -1,0 +1,127 @@
+import { StyleSheet } from "react-native";
+
+export const styles = StyleSheet.create({
+  page: { flex: 1, backgroundColor: "#F8F8F6" },
+  center: { flex: 1, alignItems: "center", justifyContent: "center" },
+
+  mapWrap: { height: 220, backgroundColor: "#D7EBDD" },
+  tip: {
+    position: "absolute",
+    bottom: 10,
+    alignSelf: "center",
+    backgroundColor: "rgba(0,0,0,0.45)",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+  },
+  tipText: { color: "#fff", fontSize: 12 },
+
+  content: { padding: 16, paddingBottom: 40 },
+  title: { fontSize: 20, fontWeight: "900", color: "#111", marginBottom: 14 },
+
+  label: { fontSize: 13, fontWeight: "800", color: "#5b5b5b", marginBottom: 4 },
+  input: {
+    borderWidth: 1,
+    borderColor: "#E5E5E5",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: "#111",
+    backgroundColor: "#fff",
+    fontSize: 15,
+  },
+  inputError: { borderColor: "#C0392B" },
+  error: { color: "#C0392B", fontSize: 12, marginTop: 4 },
+
+  segment: { flexDirection: "row", gap: 8 },
+  segmentBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#E5E5E5",
+    alignItems: "center",
+    backgroundColor: "#fff",
+  },
+  segmentBtnActive: { backgroundColor: "#5A9F78", borderColor: "#5A9F78" },
+  segmentText: { fontWeight: "800", color: "#5b5b5b" },
+  segmentTextActive: { color: "#fff" },
+
+  selectInput: {
+    borderWidth: 1,
+    borderColor: "#E5E5E5",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    backgroundColor: "#fff",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  selectText: { color: "#111", fontWeight: "800", flex: 1 },
+  selectPlaceholder: { color: "#999", flex: 1 },
+
+  rowLoading: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 6 },
+  rowLoadingText: { color: "#5b5b5b", fontSize: 13 },
+
+  sugestoesBox: {
+    borderWidth: 1,
+    borderColor: "#E5E5E5",
+    borderRadius: 10,
+    overflow: "hidden",
+    backgroundColor: "#fff",
+    marginTop: 4,
+  },
+  sugestaoItem: { paddingVertical: 11, paddingHorizontal: 12 },
+  okText: { color: "#5A9F78", fontWeight: "800", marginTop: 6, fontSize: 13 },
+
+  primaryBtn: {
+    height: 48,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#5A9F78",
+    marginTop: 20,
+  },
+  primaryText: { fontWeight: "900", color: "#fff", fontSize: 16 },
+
+  secondaryBtn: {
+    height: 48,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "#E5E5E5",
+    marginTop: 10,
+  },
+  secondaryText: { fontWeight: "800", color: "#5b5b5b" },
+
+  modalOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.4)",
+  },
+  modalContent: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    padding: 16,
+    maxHeight: "75%",
+  },
+  modalTitle: { fontSize: 18, fontWeight: "900", color: "#111", marginBottom: 10 },
+  modalSearch: {
+    borderWidth: 1,
+    borderColor: "#E5E5E5",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: "#111",
+    backgroundColor: "#F8F8F6",
+    marginBottom: 10,
+  },
+  estadoItem: { flexDirection: "row", paddingVertical: 12, paddingHorizontal: 4 },
+  separator: { height: 1, backgroundColor: "#F0F0F0" },
+});

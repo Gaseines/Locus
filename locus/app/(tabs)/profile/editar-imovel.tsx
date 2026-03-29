@@ -11,29 +11,33 @@ import {
   Text,
   TextInput,
   View,
-  StyleSheet,
 } from "react-native";
 import MapView, { Marker, PROVIDER_GOOGLE, Region } from "react-native-maps";
-import * as Location from "expo-location";
 import { Ionicons } from "@expo/vector-icons";
 
-import { router } from "expo-router";
-import {
-  aplicarMascaraPreco,
-  inputStrParaCentavos,
-} from "@/src/utils/formatters";
-import { supabase } from "@/src/supabase";
-import { criarImovel, TipoImovel } from "@/src/services/imoveisSupa";
-import { getUsuario } from "@/src/services/usuariosSupa";
+import { router, useLocalSearchParams } from "expo-router";
 
 import { CORES } from "@/src/theme/cores";
-
-import { MAPA_ESTILO, styles } from "./novo-imovel.styles";
-
+import { supabase } from "@/src/supabase";
+import {
+  editarImovel,
+  StatusImovel,
+  TipoImovel,
+} from "@/src/services/imoveisSupa";
+import {
+  aplicarMascaraPreco,
+  centavosParaInputStr,
+  inputStrParaCentavos,
+} from "@/src/utils/formatters";
+import { MAPA_ESTILO } from "./novo-imovel.styles";
+import { styles } from "./editar-imovel.styles";
 import { FotoUpload, FotoItem } from "@/components/FotoUpload";
-import { uploadImagem } from "@/src/services/storageSupa";
+import {
+  uploadImagem,
+  deletarImagem,
+  extrairPathDaUrl,
+} from "@/src/services/storageSupa";
 import { atualizarFotosImovel } from "@/src/services/imoveisSupa";
-import "react-native-get-random-values";
 import { v4 as uuidv4 } from "uuid";
 
 type Estado = { id: number; sigla: string; nome: string };
@@ -52,57 +56,32 @@ function normalizarTexto(s: string) {
     .trim();
 }
 
-async function getUserLocationSafe() {
-  const { status } = await Location.requestForegroundPermissionsAsync();
-  if (status !== "granted") return null;
-
-  const last = await Location.getLastKnownPositionAsync({});
-  if (last?.coords?.latitude && last?.coords?.longitude) {
-    return { latitude: last.coords.latitude, longitude: last.coords.longitude };
-  }
-
-  const timeoutMs = 6000;
-  const pos = await Promise.race([
-    Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
-    new Promise<never>((_, rej) =>
-      setTimeout(() => rej(new Error("timeout")), timeoutMs),
-    ),
-  ]);
-
-  const p: any = pos;
-  return { latitude: p.coords.latitude, longitude: p.coords.longitude };
-}
-
-export default function NovoImovelScreen() {
+export default function EditarImovelScreen() {
+  const { id } = useLocalSearchParams<{ id: string }>();
   const mapRef = useRef<MapView>(null);
   const municipiosCache = useRef<Record<number, Municipio[]>>({});
-
   const [uid, setUid] = useState<string | null>(null);
-  const [fotos, setFotos] = useState<FotoItem[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [salvando, setSalvando] = useState(false);
 
   const [region, setRegion] = useState<Region>({
-    latitude: -26.6367,
-    longitude: -48.6937,
+    latitude: -15.7801,
+    longitude: -47.9292,
     latitudeDelta: 0.06,
     longitudeDelta: 0.06,
   });
-
   const [pin, setPin] = useState<{
     latitude: number;
     longitude: number;
   } | null>(null);
 
-  // campos
   const [titulo, setTitulo] = useState("");
   const [tipo, setTipo] = useState<TipoImovel>("terreno");
   const [preco, setPreco] = useState("");
   const [descricao, setDescricao] = useState("");
-  const [publicarAgora, setPublicarAgora] = useState(true);
+  const [status, setStatus] = useState<StatusImovel>("rascunho");
 
-  // Estado/Cidade (IBGE)
   const [estados, setEstados] = useState<Estado[]>([]);
   const [modalEstadosAberto, setModalEstadosAberto] = useState(false);
   const [buscaEstado, setBuscaEstado] = useState("");
@@ -112,19 +91,38 @@ export default function NovoImovelScreen() {
 
   const [municipios, setMunicipios] = useState<Municipio[]>([]);
   const [carregandoMunicipios, setCarregandoMunicipios] = useState(false);
-
   const [cidade, setCidade] = useState("");
   const [municipioSelecionado, setMunicipioSelecionado] =
     useState<Municipio | null>(null);
 
-  // erros
   const [erroTitulo, setErroTitulo] = useState<string | null>(null);
   const [erroPreco, setErroPreco] = useState<string | null>(null);
   const [erroCidade, setErroCidade] = useState<string | null>(null);
   const [erroUf, setErroUf] = useState<string | null>(null);
   const [erroPin, setErroPin] = useState<string | null>(null);
 
+  const [fotos, setFotos] = useState<FotoItem[]>([]);
+  const [fotosRemovidas, setFotosRemovidas] = useState<string[]>([]); // paths a deletar
+
   const precoCentavos = useMemo(() => inputStrParaCentavos(preco), [preco]);
+
+  const estadosFiltrados = useMemo(() => {
+    if (!buscaEstado.trim()) return estados;
+    const b = normalizarTexto(buscaEstado);
+    return estados.filter(
+      (e) =>
+        normalizarTexto(e.sigla).includes(b) ||
+        normalizarTexto(e.nome).includes(b),
+    );
+  }, [estados, buscaEstado]);
+
+  const sugestoesCidades = useMemo(() => {
+    if (!cidade.trim() || municipioSelecionado) return [];
+    const b = normalizarTexto(cidade);
+    return municipios
+      .filter((m) => normalizarTexto(m.nome).includes(b))
+      .slice(0, 6);
+  }, [cidade, municipios, municipioSelecionado]);
 
   async function fetchEstados(): Promise<Estado[]> {
     const res = await fetch(IBGE_ESTADOS_URL);
@@ -138,43 +136,14 @@ export default function NovoImovelScreen() {
   async function fetchMunicipios(estadoId: number): Promise<Municipio[]> {
     if (municipiosCache.current[estadoId])
       return municipiosCache.current[estadoId];
-
     const res = await fetch(IBGE_MUNICIPIOS_POR_UF(estadoId));
     if (!res.ok) throw new Error("Falha ao buscar municípios");
     const data = (await res.json()) as any[];
-
     const lista = data
       .map((m) => ({ id: m.id, nome: m.nome }))
       .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
-
     municipiosCache.current[estadoId] = lista;
     return lista;
-  }
-
-  async function centralizarNoTexto(
-    endereco: string,
-    delta: { lat: number; lng: number },
-  ) {
-    try {
-      const results = await Location.geocodeAsync(endereco);
-      if (!results?.length) return false;
-
-      const { latitude, longitude } = results[0];
-      const r: Region = {
-        latitude,
-        longitude,
-        latitudeDelta: delta.lat,
-        longitudeDelta: delta.lng,
-      };
-
-      setRegion(r);
-      setPin({ latitude, longitude });
-      mapRef.current?.animateToRegion(r, 600);
-      setErroPin(null);
-      return true;
-    } catch {
-      return false;
-    }
   }
 
   useEffect(() => {
@@ -183,65 +152,49 @@ export default function NovoImovelScreen() {
         const {
           data: { user },
         } = await supabase.auth.getUser();
-        if (!user) {
-          router.replace("/(auth)/login");
+        if (!user || !id) {
+          router.back();
           return;
         }
         setUid(user.id);
 
-        const [estadosLista, usuario] = await Promise.all([
-          // ... resto continua igual
+        const [estadosLista, { data: imovelData, error }] = await Promise.all([
           fetchEstados(),
-          getUsuario(user.id),
+          supabase.from("imoveis").select("*").eq("id", id).single(),
         ]);
 
-        setEstados(estadosLista);
-
-        let estLocal: Estado | null = null;
-        let munLocal: Municipio | null = null;
-
-        if (usuario) {
-          const ufSalvo = usuario.pref_uf ?? "";
-          const cidadeSalva = usuario.pref_cidade ?? "";
-
-          if (ufSalvo) {
-            estLocal = estadosLista.find((e) => e.sigla === ufSalvo) ?? null;
-            setEstadoSelecionado(estLocal);
-
-            if (estLocal) {
-              setCarregandoMunicipios(true);
-              try {
-                const lista = await fetchMunicipios(estLocal.id);
-                setMunicipios(lista);
-
-                if (cidadeSalva) {
-                  const match =
-                    lista.find(
-                      (m) =>
-                        normalizarTexto(m.nome) ===
-                        normalizarTexto(cidadeSalva),
-                    ) ?? null;
-
-                  if (match) {
-                    munLocal = match;
-                    setCidade(match.nome);
-                    setMunicipioSelecionado(match);
-                  } else {
-                    setCidade(cidadeSalva);
-                    setMunicipioSelecionado(null);
-                  }
-                }
-              } finally {
-                setCarregandoMunicipios(false);
-              }
-            }
-          } else if (cidadeSalva) {
-            setCidade(cidadeSalva);
-          }
+        if (error || !imovelData) {
+          Alert.alert("Erro", "Imóvel não encontrado.");
+          router.back();
+          return;
         }
 
-        const loc = await getUserLocationSafe();
-        if (loc) {
+        const data: any = imovelData;
+
+        setTitulo(data.titulo ?? "");
+        setTipo(data.tipo ?? "terreno");
+        setDescricao(data.descricao ?? "");
+        setStatus(data.status ?? "rascunho");
+
+        // ✅ Carrega fotos existentes
+        if (data.fotos && data.fotos.length > 0) {
+          const fotosExistentes: FotoItem[] = data.fotos.map((url: string) => ({
+            id: uuidv4(),
+            uri: url,
+            uploading: false,
+          }));
+          setFotos(fotosExistentes);
+        }
+
+        // ✅ Preço já formatado como "350.000,00"
+
+        if (data.preco_centavos) {
+          setPreco(centavosParaInputStr(data.preco_centavos));
+        }
+
+        // Localização:
+        const loc = { latitude: data.latitude, longitude: data.longitude };
+        if (loc?.latitude && loc?.longitude) {
           const r: Region = {
             latitude: loc.latitude,
             longitude: loc.longitude,
@@ -250,126 +203,76 @@ export default function NovoImovelScreen() {
           };
           setRegion(r);
           setPin({ latitude: loc.latitude, longitude: loc.longitude });
-          requestAnimationFrame(() => mapRef.current?.animateToRegion(r, 600));
-        } else {
-          if (estLocal && munLocal) {
-            await centralizarNoTexto(
-              `${munLocal.nome}, ${estLocal.sigla}, Brasil`,
-              { lat: 0.08, lng: 0.08 },
-            );
-          } else if (estLocal) {
-            await centralizarNoTexto(`${estLocal.nome}, Brasil`, {
-              lat: 2.0,
-              lng: 2.0,
-            });
-          } else {
-            setPin(null);
+          setTimeout(() => mapRef.current?.animateToRegion(r, 400), 500);
+        }
+
+        // Cidade/UF:
+        const ufSalvo = data.uf ?? "";
+        const cidadeSalva = data.cidade ?? "";
+
+        if (ufSalvo) {
+          const estLocal =
+            estadosLista.find((e) => e.sigla === ufSalvo) ?? null;
+          setEstadoSelecionado(estLocal);
+
+          if (estLocal) {
+            setCarregandoMunicipios(true);
+            try {
+              const lista = await fetchMunicipios(estLocal.id);
+              setMunicipios(lista);
+              if (cidadeSalva) {
+                const match =
+                  lista.find(
+                    (m) =>
+                      normalizarTexto(m.nome) === normalizarTexto(cidadeSalva),
+                  ) ?? null;
+                if (match) {
+                  setCidade(match.nome);
+                  setMunicipioSelecionado(match);
+                } else setCidade(cidadeSalva);
+              }
+            } finally {
+              setCarregandoMunicipios(false);
+            }
           }
         }
-      } catch {
-        // ignore
+      } catch (e: any) {
+        Alert.alert(
+          "Erro",
+          e?.message ?? "Não foi possível carregar o imóvel.",
+        );
+        router.back();
       } finally {
         setLoading(false);
       }
     };
 
     run();
-  }, []);
-
-  const estadosFiltrados = useMemo(() => {
-    const q = normalizarTexto(buscaEstado);
-    if (!q) return estados;
-    return estados.filter((e) =>
-      normalizarTexto(`${e.sigla} ${e.nome}`).includes(q),
-    );
-  }, [buscaEstado, estados]);
-
-  const sugestoesCidades = useMemo(() => {
-    if (!estadoSelecionado) return [];
-    const q = normalizarTexto(cidade);
-    if (!q || q.length < 2) return [];
-
-    return municipios
-      .filter((m) => normalizarTexto(m.nome).includes(q))
-      .slice(0, 8);
-  }, [cidade, municipios, estadoSelecionado]);
+  }, [uid, id]);
 
   async function selecionarEstado(estado: Estado) {
     setEstadoSelecionado(estado);
-    setErroUf(null);
     setModalEstadosAberto(false);
-
+    setBuscaEstado("");
     setCidade("");
     setMunicipioSelecionado(null);
-    setErroCidade(null);
-
+    setMunicipios([]);
+    setErroUf(null);
     setCarregandoMunicipios(true);
     try {
       const lista = await fetchMunicipios(estado.id);
       setMunicipios(lista);
     } catch {
-      Alert.alert("Ops", "Não consegui carregar as cidades desse estado.");
-      setMunicipios([]);
+      Alert.alert("Erro", "Não foi possível carregar as cidades.");
     } finally {
       setCarregandoMunicipios(false);
     }
-
-    await centralizarNoTexto(`${estado.nome}, Brasil`, { lat: 2.0, lng: 2.0 });
   }
 
-  async function selecionarCidade(m: Municipio) {
-    if (!estadoSelecionado) return;
-
+  function selecionarCidade(m: Municipio) {
     setCidade(m.nome);
     setMunicipioSelecionado(m);
     setErroCidade(null);
-
-    await centralizarNoTexto(`${m.nome}, ${estadoSelecionado.sigla}, Brasil`, {
-      lat: 0.08,
-      lng: 0.08,
-    });
-  }
-
-  function limparErros() {
-    setErroTitulo(null);
-    setErroPreco(null);
-    setErroCidade(null);
-    setErroUf(null);
-    setErroPin(null);
-  }
-
-  function validar() {
-    limparErros();
-    let ok = true;
-
-    if (titulo.trim().length < 3) {
-      setErroTitulo("Informe um título (mínimo 3 caracteres).");
-      ok = false;
-    }
-
-    if (!precoCentavos) {
-      setErroPreco("Informe um preço válido.");
-      ok = false;
-    }
-
-    if (!estadoSelecionado) {
-      setErroUf("Selecione um estado (UF).");
-      ok = false;
-    }
-
-    if (!municipioSelecionado) {
-      setErroCidade("Selecione uma cidade da lista de sugestões.");
-      ok = false;
-    }
-
-    if (!pin) {
-      setErroPin(
-        "Defina a localização no mapa (toque no mapa ou use sua localização).",
-      );
-      ok = false;
-    }
-
-    return ok;
   }
 
   async function salvar() {
@@ -403,8 +306,8 @@ export default function NovoImovelScreen() {
       } = await supabase.auth.getUser();
       if (!user) throw new Error("Não autenticado.");
 
-      // 1) Cria o imóvel primeiro
-      const imovel = await criarImovel({
+      // 1) Salva os dados do imóvel
+      await editarImovel(id!, {
         titulo,
         descricao,
         precoCentavos: precoCentavos!,
@@ -413,28 +316,34 @@ export default function NovoImovelScreen() {
         uf: estadoSelecionado!.sigla,
         idEstado: estadoSelecionado!.id,
         idMunicipio: municipioSelecionado!.id,
-        status: publicarAgora ? "publicado" : "rascunho",
+        status,
         latitude: pin!.latitude,
         longitude: pin!.longitude,
       });
 
-      // 2) Faz upload das fotos (se houver)
-      if (fotos.length > 0) {
-        const urlsUpload: string[] = [];
+      // 2) Faz upload das fotos novas (que têm uri local, não http)
+      const fotosNovas = fotos.filter((f) => !f.uri.startsWith("http"));
+      const fotasExistentes = fotos
+        .filter((f) => f.uri.startsWith("http"))
+        .map((f) => f.uri);
 
-        // Marca todas como uploading
-        setFotos((prev) => prev.map((f) => ({ ...f, uploading: true })));
+      const urlsNovas: string[] = [];
 
-        for (const foto of fotos) {
+      if (fotosNovas.length > 0) {
+        setFotos((prev) =>
+          prev.map((f) =>
+            !f.uri.startsWith("http") ? { ...f, uploading: true } : f,
+          ),
+        );
+
+        for (const foto of fotosNovas) {
           try {
             const url = await uploadImagem({
               uri: foto.uri,
-              imovelId: imovel.id,
+              imovelId: id!,
               userId: user.id,
             });
-            urlsUpload.push(url);
-
-            // Atualiza a foto como concluída
+            urlsNovas.push(url);
             setFotos((prev) =>
               prev.map((f) =>
                 f.id === foto.id ? { ...f, uri: url, uploading: false } : f,
@@ -448,15 +357,23 @@ export default function NovoImovelScreen() {
             );
           }
         }
+      }
 
-        // 3) Salva as URLs no imóvel
-        if (urlsUpload.length > 0) {
-          await atualizarFotosImovel(imovel.id, urlsUpload);
+      // 3) Atualiza a lista de fotos no banco
+      const todasFotos = [...fotasExistentes, ...urlsNovas];
+      await atualizarFotosImovel(id!, todasFotos);
+
+      // 4) Deleta fotos removidas do Storage
+      for (const path of fotosRemovidas) {
+        try {
+          await deletarImagem(path);
+        } catch {
+          /* ignora */
         }
       }
 
-      Alert.alert("Publicado!", "Seu imóvel foi cadastrado.", [
-        { text: "OK", onPress: () => router.replace("/(tabs)") },
+      Alert.alert("Salvo!", "Imóvel atualizado com sucesso.", [
+        { text: "OK", onPress: () => router.back() },
       ]);
     } catch (e: any) {
       Alert.alert("Erro", e?.message ?? "Não foi possível salvar.");
@@ -464,38 +381,24 @@ export default function NovoImovelScreen() {
       setSalvando(false);
     }
   }
+  function handleAddFotoUri(uri: string) {
+    setFotos((prev) => [...prev, { id: uuidv4(), uri, uploading: false }]);
+  }
 
-  async function usarMinhaLocalizacao() {
-    try {
-      const loc = await getUserLocationSafe();
-      if (!loc) {
-        Alert.alert(
-          "Localização",
-          "Permissão negada. Toque no mapa para escolher manualmente.",
-        );
-        return;
-      }
-
-      const r: Region = {
-        latitude: loc.latitude,
-        longitude: loc.longitude,
-        latitudeDelta: region.latitudeDelta,
-        longitudeDelta: region.longitudeDelta,
-      };
-
-      setRegion(r);
-      setPin({ latitude: loc.latitude, longitude: loc.longitude });
-      mapRef.current?.animateToRegion(r, 600);
-      setErroPin(null);
-    } catch {
-      Alert.alert("Localização", "Não consegui pegar sua localização agora.");
+  function handleRemoveFoto(id: string) {
+    const foto = fotos.find((f) => f.id === id);
+    if (foto) {
+      // Se for uma URL remota, marca para deletar do Storage depois
+      const path = extrairPathDaUrl(foto.uri);
+      if (path) setFotosRemovidas((prev) => [...prev, path]);
     }
+    setFotos((prev) => prev.filter((f) => f.id !== id));
   }
 
   if (loading) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" />
+        <ActivityIndicator size="large" color="#5A9F78" />
         <Text style={{ marginTop: 10, color: CORES.texto, opacity: 0.75 }}>
           Carregando…
         </Text>
@@ -503,33 +406,18 @@ export default function NovoImovelScreen() {
     );
   }
 
-  function handleAddFotoUri(uri: string) {
-    const novaFoto: FotoItem = {
-      id: uuidv4(),
-      uri,
-      uploading: false,
-    };
-    setFotos((prev) => [...prev, novaFoto]);
-  }
-
-  function handleRemoveFoto(id: string) {
-    setFotos((prev) => prev.filter((f) => f.id !== id));
-  }
-
   return (
     <KeyboardAvoidingView
       style={styles.page}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      {/* MAPA */}
       <View style={styles.mapWrap}>
         <MapView
           ref={mapRef}
-          style={StyleSheet.absoluteFill}
+          style={{ flex: 1 }}
           initialRegion={region}
           onPress={(e) => {
-            const c = e.nativeEvent.coordinate;
-            setPin({ latitude: c.latitude, longitude: c.longitude });
+            setPin(e.nativeEvent.coordinate);
             setErroPin(null);
           }}
           customMapStyle={Platform.OS === "android" ? MAPA_ESTILO : undefined}
@@ -547,37 +435,25 @@ export default function NovoImovelScreen() {
               coordinate={pin}
               draggable
               onDragEnd={(e) => {
-                const c = e.nativeEvent.coordinate;
-                setPin({ latitude: c.latitude, longitude: c.longitude });
+                setPin(e.nativeEvent.coordinate);
                 setErroPin(null);
               }}
             />
           )}
         </MapView>
-
-        <Pressable
-          style={styles.locFab}
-          onPress={usarMinhaLocalizacao}
-          hitSlop={12}
-        >
-          <Ionicons name="locate" size={20} color={CORES.primario} />
-        </Pressable>
-
         <View style={styles.tip}>
-          <Text style={styles.tipText}>
-            Toque no mapa para posicionar o imóvel.
-          </Text>
+          <Text style={styles.tipText}>Toque no mapa para reposicionar.</Text>
         </View>
       </View>
 
-      {/* FORM */}
       <ScrollView
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
       >
-        <Text style={styles.title}>Novo imóvel</Text>
+        <Text style={styles.title}>Editar imóvel</Text>
 
-        <Text style={styles.label}>Fotos</Text>
+        {/* ✅ Fotos */}
+        <Text style={[styles.label, { marginTop: 4 }]}>Fotos</Text>
         <FotoUpload
           fotos={fotos}
           onAddUri={handleAddFotoUri}
@@ -603,35 +479,33 @@ export default function NovoImovelScreen() {
 
         <Text style={[styles.label, { marginTop: 12 }]}>Tipo</Text>
         <View style={styles.segment}>
-          {(["terreno", "casa", "apartamento"] as TipoImovel[]).map((t) => {
-            const ativo = tipo === t;
-            return (
-              <Pressable
-                key={t}
-                onPress={() => setTipo(t)}
-                style={[styles.segmentBtn, ativo && styles.segmentBtnActive]}
+          {(["terreno", "casa", "apartamento"] as TipoImovel[]).map((t) => (
+            <Pressable
+              key={t}
+              onPress={() => setTipo(t)}
+              style={[styles.segmentBtn, tipo === t && styles.segmentBtnActive]}
+            >
+              <Text
+                style={[
+                  styles.segmentText,
+                  tipo === t && styles.segmentTextActive,
+                ]}
               >
-                <Text
-                  style={[
-                    styles.segmentText,
-                    ativo && styles.segmentTextActive,
-                  ]}
-                >
-                  {t === "terreno" ? "Terreno" : t === "casa" ? "Casa" : "Apto"}
-                </Text>
-              </Pressable>
-            );
-          })}
+                {t === "terreno" ? "Terreno" : t === "casa" ? "Casa" : "Apto"}
+              </Text>
+            </Pressable>
+          ))}
         </View>
 
         <Text style={[styles.label, { marginTop: 12 }]}>Preço (R$)</Text>
         <TextInput
           value={preco}
           onChangeText={(t) => {
+            // ✅ Aplica máscara: "35000000" → "350.000,00"
             setPreco(aplicarMascaraPreco(t));
             if (erroPreco) setErroPreco(null);
           }}
-          placeholder="Ex: 350000 ou 350.000,00"
+          placeholder="Ex: 350.000,00"
           placeholderTextColor="#999"
           keyboardType="numeric"
           style={[styles.input, erroPreco && styles.inputError]}
@@ -700,9 +574,7 @@ export default function NovoImovelScreen() {
         )}
 
         {!!municipioSelecionado && (
-          <Text style={styles.okText}>
-            Selecionado: {municipioSelecionado.nome}
-          </Text>
+          <Text style={styles.okText}>✓ {municipioSelecionado.nome}</Text>
         )}
         {!!erroCidade && <Text style={styles.error}>{erroCidade}</Text>}
 
@@ -718,22 +590,37 @@ export default function NovoImovelScreen() {
           style={[styles.input, { height: 90, textAlignVertical: "top" }]}
         />
 
-        <Pressable
-          onPress={() => setPublicarAgora((v) => !v)}
-          style={styles.publishRow}
-        >
-          <View style={[styles.check, publicarAgora && styles.checkOn]}>
-            {publicarAgora && (
-              <Ionicons name="checkmark" size={16} color={CORES.branco} />
-            )}
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.publishTitle}>Publicar agora</Text>
-            <Text style={styles.publishHint}>
-              Só “publicado” aparece no mapa e na lista.
-            </Text>
-          </View>
-        </Pressable>
+        <Text style={[styles.label, { marginTop: 12 }]}>Status</Text>
+        <View style={styles.segment}>
+          {(["rascunho", "publicado", "arquivado"] as StatusImovel[]).map(
+            (s) => {
+              const labels: Record<StatusImovel, string> = {
+                rascunho: "Rascunho",
+                publicado: "Publicado",
+                arquivado: "Arquivado",
+              };
+              return (
+                <Pressable
+                  key={s}
+                  onPress={() => setStatus(s)}
+                  style={[
+                    styles.segmentBtn,
+                    status === s && styles.segmentBtnActive,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.segmentText,
+                      status === s && styles.segmentTextActive,
+                    ]}
+                  >
+                    {labels[s]}
+                  </Text>
+                </Pressable>
+              );
+            },
+          )}
+        </View>
 
         <Pressable
           style={[styles.primaryBtn, salvando && { opacity: 0.75 }]}
@@ -741,15 +628,15 @@ export default function NovoImovelScreen() {
           disabled={salvando}
         >
           {salvando ? (
-            <ActivityIndicator color={CORES.branco} />
+            <ActivityIndicator color="#fff" />
           ) : (
-            <Text style={styles.primaryText}>Salvar</Text>
+            <Text style={styles.primaryText}>Salvar alterações</Text>
           )}
         </Pressable>
 
         <Pressable
           style={styles.secondaryBtn}
-          onPress={() => router.replace("/(tabs)")}
+          onPress={() => router.back()}
           disabled={salvando}
         >
           <Text style={styles.secondaryText}>Cancelar</Text>
@@ -768,7 +655,6 @@ export default function NovoImovelScreen() {
         />
         <View style={styles.modalContent}>
           <Text style={styles.modalTitle}>Selecione seu estado</Text>
-
           <TextInput
             value={buscaEstado}
             onChangeText={setBuscaEstado}
@@ -777,7 +663,6 @@ export default function NovoImovelScreen() {
             style={styles.modalSearch}
             autoCapitalize="none"
           />
-
           <FlatList
             data={estadosFiltrados}
             keyExtractor={(item) => String(item.id)}

@@ -16,10 +16,26 @@ export const MAPA_ESTILO = [
   },
   { featureType: "poi", stylers: [{ visibility: "off" }] },
   { featureType: "transit", stylers: [{ visibility: "off" }] },
-  { featureType: "road", elementType: "geometry", stylers: [{ color: "#FFFFFF" }] },
-  { featureType: "road", elementType: "geometry.stroke", stylers: [{ color: "#ECECEC" }] },
-  { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#E6E6E6" }] },
-  { featureType: "water", elementType: "geometry", stylers: [{ color: "#E9E9E9" }] },
+  {
+    featureType: "road",
+    elementType: "geometry",
+    stylers: [{ color: "#FFFFFF" }],
+  },
+  {
+    featureType: "road",
+    elementType: "geometry.stroke",
+    stylers: [{ color: "#ECECEC" }],
+  },
+  {
+    featureType: "road.highway",
+    elementType: "geometry",
+    stylers: [{ color: "#E6E6E6" }],
+  },
+  {
+    featureType: "water",
+    elementType: "geometry",
+    stylers: [{ color: "#E9E9E9" }],
+  },
 ];
 
 export const styles = StyleSheet.create({
@@ -112,12 +128,13 @@ export const styles = StyleSheet.create({
   listTitle: { fontSize: 16, fontWeight: "900", color: "#111" },
   sellerHint: { marginTop: 6, fontSize: 12, opacity: 0.7 },
 
+  // Card com foto
   card: {
     backgroundColor: "#fff",
     borderRadius: 14,
-    padding: 14,
     borderWidth: 1,
     borderColor: "#E5E5E5",
+    overflow: "hidden", // ← importante para a foto respeitar o borderRadius
   },
   cardActive: {
     borderColor: "#5A9F78",
@@ -125,9 +142,40 @@ export const styles = StyleSheet.create({
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 3 },
   },
-  cardTitle: { fontSize: 15, fontWeight: "900", color: "#111" },
-  cardSub: { marginTop: 4, fontSize: 12, opacity: 0.7 },
-  cardPrice: { marginTop: 10, fontSize: 14, fontWeight: "900", color: "#111" },
+  cardFoto: {
+    width: "100%",
+    height: 140,
+    backgroundColor: "#F0F0F0",
+  },
+  cardFotoPlaceholder: {
+    width: "100%",
+    height: 140,
+    backgroundColor: "#F8F8F6",
+    alignItems: "center",
+    justifyContent: "center",
+    borderBottomWidth: 1,
+    borderBottomColor: "#F0F0F0",
+  },
+  cardBody: {
+    padding: 12,
+  },
+  cardTitle: {
+    fontSize: 15,
+    fontWeight: "900",
+    color: "#111",
+  },
+  cardSub: {
+    marginTop: 4,
+    fontSize: 12,
+    opacity: 0.7,
+    color: "#5b5b5b",
+  },
+  cardPrice: {
+    marginTop: 8,
+    fontSize: 15,
+    fontWeight: "900",
+    color: "#111",
+  },
 
   // =========================
   // ✅ MODAIS BUSCA / UF (IBGE)

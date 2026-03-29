@@ -8,11 +8,13 @@ export default function ProfileLayout() {
         options={{
           title: "Perfil",
           headerBackVisible: false,
-          headerLeft: () => null, // ✅ garante
+          headerLeft: () => null,
         }}
       />
       <Stack.Screen name="preferencias" options={{ title: "Preferências" }} />
       <Stack.Screen name="novo-imovel" options={{ title: "Novo imóvel" }} />
+      <Stack.Screen name="meus-imoveis" options={{ title: "Meus imóveis" }} />
+      <Stack.Screen name="editar-imovel" options={{ title: "Editar imóvel" }} />
     </Stack>
   );
 }

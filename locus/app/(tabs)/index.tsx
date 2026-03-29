@@ -1,4 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useFocusEffect } from "@react-navigation/native";
 import {
   ActivityIndicator,
@@ -12,15 +18,17 @@ import {
   Modal,
   TextInput,
   KeyboardAvoidingView,
+  Image,
 } from "react-native";
 import MapView, { Marker, PROVIDER_GOOGLE, Region } from "react-native-maps";
 import * as Location from "expo-location";
-import { doc, onSnapshot } from "firebase/firestore";
-import { auth, db } from "@/src/firebase";
+
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 
-import { buscarImoveisPorRaio, Imovel } from "@/src/services/imoveisProximos";
+import { supabase } from "@/src/supabase";
+import { buscarImoveisPorRaio, Imovel } from "@/src/services/imoveisSupa";
+import { getUsuario } from "@/src/services/usuariosSupa";
 import { MAPA_ESTILO, styles } from "./home.styles";
 import { PriceMarker } from "@/components/PriceMarker";
 
@@ -28,7 +36,6 @@ type UsuarioDoc = {
   funcoes?: { comprador?: boolean; vendedor?: boolean };
   preferencias?: { cidade?: string; uf?: string };
 };
-
 type EstadoIBGE = { id: number; sigla: string; nome: string };
 type MunicipioIBGE = { id: number; nome: string };
 
@@ -58,7 +65,9 @@ async function getUserLocationSafe() {
   const timeoutMs = 6000;
   const pos = await Promise.race([
     Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
-    new Promise<never>((_, rej) => setTimeout(() => rej(new Error("timeout")), timeoutMs)),
+    new Promise<never>((_, rej) =>
+      setTimeout(() => rej(new Error("timeout")), timeoutMs),
+    ),
   ]);
 
   const p: any = pos;
@@ -66,7 +75,9 @@ async function getUserLocationSafe() {
 }
 
 async function fetchEstadosIBGE(): Promise<EstadoIBGE[]> {
-  const res = await fetch("https://servicodados.ibge.gov.br/api/v1/localidades/estados");
+  const res = await fetch(
+    "https://servicodados.ibge.gov.br/api/v1/localidades/estados",
+  );
   if (!res.ok) throw new Error("Falha ao carregar estados IBGE");
   const data = (await res.json()) as EstadoIBGE[];
   return data.sort((a, b) => a.nome.localeCompare(b.nome));
@@ -74,7 +85,7 @@ async function fetchEstadosIBGE(): Promise<EstadoIBGE[]> {
 
 async function fetchMunicipiosIBGE(estadoId: number): Promise<MunicipioIBGE[]> {
   const res = await fetch(
-    `https://servicodados.ibge.gov.br/api/v1/localidades/estados/${estadoId}/municipios`
+    `https://servicodados.ibge.gov.br/api/v1/localidades/estados/${estadoId}/municipios`,
   );
   if (!res.ok) throw new Error("Falha ao carregar municípios IBGE");
   const data = (await res.json()) as MunicipioIBGE[];
@@ -92,9 +103,10 @@ export default function HomeTab() {
   const [usuario, setUsuario] = useState<UsuarioDoc | null>(null);
 
   const [carregando, setCarregando] = useState(true);
-  const [posUsuario, setPosUsuario] = useState<{ latitude: number; longitude: number } | null>(
-    null
-  );
+  const [posUsuario, setPosUsuario] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
 
   const [region, setRegion] = useState<Region>({
     latitude: -26.6367,
@@ -113,23 +125,29 @@ export default function HomeTab() {
 
   // 🔎 BUSCA (NÃO salva no Firestore)
   const [buscaModalVisible, setBuscaModalVisible] = useState(false);
-  const [buscaAtiva, setBuscaAtiva] = useState<{ cidade: string; uf: string } | null>(null);
+  const [buscaAtiva, setBuscaAtiva] = useState<{
+    cidade: string;
+    uf: string;
+  } | null>(null);
 
   // IBGE - Estados/Municípios
   const [estados, setEstados] = useState<EstadoIBGE[]>([]);
   const [estadoModalVisible, setEstadoModalVisible] = useState(false);
   const [estadoFiltro, setEstadoFiltro] = useState("");
-  const [estadoSelecionado, setEstadoSelecionado] = useState<EstadoIBGE | null>(null);
+  const [estadoSelecionado, setEstadoSelecionado] = useState<EstadoIBGE | null>(
+    null,
+  );
 
   const [municipios, setMunicipios] = useState<MunicipioIBGE[]>([]);
   const [cidadeInput, setCidadeInput] = useState("");
-  const [cidadeSelecionada, setCidadeSelecionada] = useState<MunicipioIBGE | null>(null);
+  const [cidadeSelecionada, setCidadeSelecionada] =
+    useState<MunicipioIBGE | null>(null);
   const [cidadeSugestoesVisivel, setCidadeSugestoesVisivel] = useState(false);
 
   // usado pra preencher o modal com a busca atual / preferências
-  const [prefill, setPrefill] = useState<{ cidade: string; uf: string } | null>(null);
-
-  const uid = auth.currentUser?.uid;
+  const [prefill, setPrefill] = useState<{ cidade: string; uf: string } | null>(
+    null,
+  );
 
   const modoComprador = useMemo(() => {
     const f = usuario?.funcoes;
@@ -149,13 +167,29 @@ export default function HomeTab() {
 
   // carrega usuario (funcoes/preferencias)
   useEffect(() => {
-    if (!uid) return;
-    const ref = doc(db, "usuarios", uid);
-    const unsub = onSnapshot(ref, (snap) => {
-      setUsuario(snap.exists() ? (snap.data() as UsuarioDoc) : null);
-    });
-    return () => unsub();
-  }, [uid]);
+    const run = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+      const usuario = await getUsuario(user.id);
+      setUsuario(
+        usuario
+          ? {
+              funcoes: {
+                comprador: !!usuario.funcao_comprador,
+                vendedor: !!usuario.funcao_vendedor,
+              },
+              preferencias: {
+                cidade: usuario.pref_cidade ?? undefined,
+                uf: usuario.pref_uf ?? undefined,
+              },
+            }
+          : null,
+      );
+    };
+    run();
+  }, []);
 
   function raioKmDaTela(r: Region) {
     const half = (r.latitudeDelta * 111) / 2;
@@ -167,7 +201,11 @@ export default function HomeTab() {
       try {
         setBuscando(true);
         const raioKm = raioKmDaTela(r);
-        const lista = await buscarImoveisPorRaio({ centro, raioKm });
+        const lista = await buscarImoveisPorRaio({
+          latitude: centro.latitude,
+          longitude: centro.longitude,
+          raioKm,
+        });
         setImoveis(lista);
       } catch (e: any) {
         console.log("ERRO carregarImoveis:", e?.code, e?.message, e);
@@ -175,7 +213,7 @@ export default function HomeTab() {
         setBuscando(false);
       }
     },
-    []
+    [],
   );
 
   function debouncedMarcarAreaMudou() {
@@ -264,7 +302,10 @@ export default function HomeTab() {
           setRegion(r);
           requestAnimationFrame(() => mapRef.current?.animateToRegion(r, 600));
 
-          await carregarImoveis({ latitude: r.latitude, longitude: r.longitude }, r);
+          await carregarImoveis(
+            { latitude: r.latitude, longitude: r.longitude },
+            r,
+          );
           jaBuscouInicialRef.current = true;
           setAreaMudou(false);
         }
@@ -284,7 +325,10 @@ export default function HomeTab() {
       if (carregando) return;
       if (!jaBuscouInicialRef.current) return;
 
-      carregarImoveis({ latitude: region.latitude, longitude: region.longitude }, region);
+      carregarImoveis(
+        { latitude: region.latitude, longitude: region.longitude },
+        region,
+      );
       setAreaMudou(false);
     }, [
       carregando,
@@ -293,7 +337,7 @@ export default function HomeTab() {
       region.longitude,
       region.latitudeDelta,
       region.longitudeDelta,
-    ])
+    ]),
   );
 
   // se usuário não tem GPS (posUsuario null) e ele alterou preferências, centraliza e busca
@@ -322,7 +366,10 @@ export default function HomeTab() {
         setRegion(r);
         mapRef.current?.animateToRegion(r, 600);
 
-        await carregarImoveis({ latitude: r.latitude, longitude: r.longitude }, r);
+        await carregarImoveis(
+          { latitude: r.latitude, longitude: r.longitude },
+          r,
+        );
         setAreaMudou(false);
         jaBuscouInicialRef.current = true;
       } catch (e: any) {
@@ -331,7 +378,13 @@ export default function HomeTab() {
     };
 
     run();
-  }, [usuario?.preferencias?.cidade, usuario?.preferencias?.uf, posUsuario, carregarImoveis, buscaAtiva]);
+  }, [
+    usuario?.preferencias?.cidade,
+    usuario?.preferencias?.uf,
+    posUsuario,
+    carregarImoveis,
+    buscaAtiva,
+  ]);
 
   const onRegionChangeComplete = (r: Region) => {
     setRegion(r);
@@ -339,7 +392,10 @@ export default function HomeTab() {
   };
 
   const buscarNestaArea = async () => {
-    await carregarImoveis({ latitude: region.latitude, longitude: region.longitude }, region);
+    await carregarImoveis(
+      { latitude: region.latitude, longitude: region.longitude },
+      region,
+    );
     setAreaMudou(false);
     jaBuscouInicialRef.current = true;
   };
@@ -348,7 +404,10 @@ export default function HomeTab() {
     try {
       const loc = await getUserLocationSafe();
       if (!loc) {
-        Alert.alert("Localização", "Permissão negada. Você pode ajustar o local nas Preferências.");
+        Alert.alert(
+          "Localização",
+          "Permissão negada. Você pode ajustar o local nas Preferências.",
+        );
         return;
       }
 
@@ -365,7 +424,10 @@ export default function HomeTab() {
       setRegion(r);
       mapRef.current?.animateToRegion(r, 600);
 
-      await carregarImoveis({ latitude: r.latitude, longitude: r.longitude }, r);
+      await carregarImoveis(
+        { latitude: r.latitude, longitude: r.longitude },
+        r,
+      );
       setAreaMudou(false);
       jaBuscouInicialRef.current = true;
     } catch {
@@ -411,7 +473,10 @@ export default function HomeTab() {
       setRegion(r);
       mapRef.current?.animateToRegion(r, 600);
 
-      await carregarImoveis({ latitude: r.latitude, longitude: r.longitude }, r);
+      await carregarImoveis(
+        { latitude: r.latitude, longitude: r.longitude },
+        r,
+      );
       setAreaMudou(false);
       jaBuscouInicialRef.current = true;
     } catch (e: any) {
@@ -441,7 +506,10 @@ export default function HomeTab() {
       };
       setRegion(r);
       mapRef.current?.animateToRegion(r, 600);
-      await carregarImoveis({ latitude: r.latitude, longitude: r.longitude }, r);
+      await carregarImoveis(
+        { latitude: r.latitude, longitude: r.longitude },
+        r,
+      );
       setAreaMudou(false);
       jaBuscouInicialRef.current = true;
       return;
@@ -458,7 +526,7 @@ export default function HomeTab() {
   const selecionarImovel = (im: Imovel) => {
     setSelecionadoId(im.id);
 
-    const loc = im.localizacao;
+    const loc = { latitude: im.latitude, longitude: im.longitude };
     if (loc?.latitude && loc?.longitude) {
       const r: Region = {
         latitude: loc.latitude,
@@ -468,26 +536,38 @@ export default function HomeTab() {
       };
       mapRef.current?.animateToRegion(r, 450);
     }
+
+    // ✅ Navega para o detalhe
+    router.push(`/(tabs)/imovel/${im.id}` as any);
   };
 
   const selecionarMarker = (im: Imovel) => {
-    setSelecionadoId(im.id);
+  setSelecionadoId(im.id);
 
-    const idx = indexPorId.get(im.id);
-    if (idx !== undefined) {
-      listaRef.current?.scrollToIndex({ index: idx, animated: true, viewPosition: 0.2 });
-    }
-  };
+  const idx = indexPorId.get(im.id);
+  if (idx !== undefined) {
+    listaRef.current?.scrollToIndex({
+      index: idx,
+      animated: true,
+      viewPosition: 0.2,
+    });
+  }
+
+  // ✅ Navega para o detalhe
+  router.push(`/(tabs)/imovel/${im.id}` as any);
+};
 
   const estadosFiltrados = useMemo(() => {
     const q = norm(estadoFiltro);
     if (!q) return estados;
-    return estados.filter((e) => norm(e.nome).includes(q) || norm(e.sigla).includes(q));
+    return estados.filter(
+      (e) => norm(e.nome).includes(q) || norm(e.sigla).includes(q),
+    );
   }, [estados, estadoFiltro]);
 
   const municipiosIndex = useMemo(
     () => municipios.map((m) => ({ ...m, _n: norm(m.nome) })),
-    [municipios]
+    [municipios],
   );
 
   const sugestoes = useMemo(() => {
@@ -514,8 +594,8 @@ export default function HomeTab() {
     buscaAtiva?.cidade && buscaAtiva?.uf
       ? `${buscaAtiva.cidade} - ${buscaAtiva.uf}`
       : usuario?.preferencias?.cidade && usuario?.preferencias?.uf
-      ? `${usuario.preferencias.cidade} - ${usuario.preferencias.uf}`
-      : "Buscar cidade…";
+        ? `${usuario.preferencias.cidade} - ${usuario.preferencias.uf}`
+        : "Buscar cidade…";
 
   return (
     <View style={styles.page}>
@@ -537,22 +617,28 @@ export default function HomeTab() {
           provider={Platform.OS === "android" ? PROVIDER_GOOGLE : undefined}
         >
           {imoveis.map((im) => {
-            const loc = im.localizacao;
-            if (!loc) return null;
+            const loc = { latitude: im.latitude, longitude: im.longitude };
+            if (!loc?.latitude || !loc?.longitude) return null;
 
             const ativo = im.id === selecionadoId;
 
             return (
               <Marker
                 key={im.id}
-                coordinate={{ latitude: loc.latitude, longitude: loc.longitude }}
+                coordinate={{
+                  latitude: loc.latitude,
+                  longitude: loc.longitude,
+                }}
                 onPress={() => selecionarMarker(im)}
                 opacity={ativo ? 1 : 0.85}
                 anchor={{ x: 0.5, y: 1 }}
                 zIndex={ativo ? 999 : 1}
                 tracksViewChanges={!markersReady || ativo}
               >
-                <PriceMarker precoCentavos={im.precoCentavos ?? 0} selected={ativo} />
+                <PriceMarker
+                  precoCentavos={im.preco_centavos}
+                  selected={ativo}
+                />
               </Marker>
             );
           })}
@@ -564,7 +650,9 @@ export default function HomeTab() {
 
           <View style={{ flex: 1 }}>
             <Text style={styles.searchText}>{labelTopo}</Text>
-            <Text style={styles.searchHint}>{buscaAtiva ? "Alterar busca" : "Buscar nesta cidade"}</Text>
+            <Text style={styles.searchHint}>
+              {buscaAtiva ? "Alterar busca" : "Buscar nesta cidade"}
+            </Text>
           </View>
 
           {/* ⚙️ Chip atalho para Preferências */}
@@ -588,7 +676,9 @@ export default function HomeTab() {
             hitSlop={10}
           >
             <Ionicons name="refresh" size={16} color="#111" />
-            <Text style={styles.buscarAreaText}>{buscando ? "Buscando…" : "Buscar nesta área"}</Text>
+            <Text style={styles.buscarAreaText}>
+              {buscando ? "Buscando…" : "Buscar nesta área"}
+            </Text>
           </Pressable>
         )}
 
@@ -604,11 +694,14 @@ export default function HomeTab() {
       </View>
 
       <View style={styles.listHeader}>
-        <Text style={styles.listTitle}>{buscando ? "Buscando imóveis perto…" : "Imóveis por perto"}</Text>
+        <Text style={styles.listTitle}>
+          {buscando ? "Buscando imóveis perto…" : "Imóveis por perto"}
+        </Text>
 
         {!modoComprador && (
           <Text style={styles.sellerHint}>
-            Você está como vendedor. (Depois a gente cria uma home específica pra vendedor-only.)
+            Você está como vendedor. (Depois a gente cria uma home específica
+            pra vendedor-only.)
           </Text>
         )}
       </View>
@@ -620,23 +713,56 @@ export default function HomeTab() {
         contentContainerStyle={{ padding: 16, paddingTop: 10, gap: 10 }}
         onScrollToIndexFailed={() => {}}
         refreshing={buscando}
-        onRefresh={() => carregarImoveis({ latitude: region.latitude, longitude: region.longitude }, region)}
+        onRefresh={() =>
+          carregarImoveis(
+            { latitude: region.latitude, longitude: region.longitude },
+            region,
+          )
+        }
         renderItem={({ item }) => {
           const ativo = item.id === selecionadoId;
+          const fotoCapa = item.fotos?.[0] ?? null;
 
           return (
-            <Pressable onPress={() => selecionarImovel(item)} style={[styles.card, ativo && styles.cardActive]}>
-              <Text style={styles.cardTitle}>{item.titulo ?? "Imóvel"}</Text>
-              <Text style={styles.cardSub}>
-                {item.cidade && item.uf ? `${item.cidade} - ${item.uf}` : "Local não informado"}
-              </Text>
-              <Text style={styles.cardPrice}>{formatarPreco(item.precoCentavos)}</Text>
+            <Pressable
+              onPress={() => selecionarImovel(item)}
+              style={[styles.card, ativo && styles.cardActive]}
+            >
+              {/* Foto de capa */}
+              {fotoCapa ? (
+                <Image
+                  source={{ uri: fotoCapa }}
+                  style={styles.cardFoto}
+                  resizeMode="cover"
+                />
+              ) : (
+                <View style={styles.cardFotoPlaceholder}>
+                  <Ionicons name="home-outline" size={28} color="#ccc" />
+                </View>
+              )}
+
+              {/* Infos */}
+              <View style={styles.cardBody}>
+                <Text style={styles.cardTitle} numberOfLines={1}>
+                  {item.titulo ?? "Imóvel"}
+                </Text>
+                <Text style={styles.cardSub} numberOfLines={1}>
+                  {item.cidade && item.uf
+                    ? `${item.cidade} - ${item.uf}`
+                    : "Local não informado"}
+                </Text>
+                <Text style={styles.cardPrice}>
+                  {formatarPreco(item.preco_centavos)}
+                </Text>
+              </View>
             </Pressable>
           );
         }}
         ListEmptyComponent={
           <View style={{ padding: 16 }}>
-            <Text style={{ opacity: 0.7 }}>Ainda não tem anúncios publicados nessa região.</Text>
+            <Text style={{ opacity: 0.7 }}>
+              Ainda não tem anúncios publicados nessa região.
+            </Text>
           </View>
         }
       />
@@ -648,13 +774,23 @@ export default function HomeTab() {
         animationType="fade"
         onRequestClose={() => setBuscaModalVisible(false)}
       >
-        <Pressable style={styles.modalBackdrop} onPress={() => setBuscaModalVisible(false)} />
+        <Pressable
+          style={styles.modalBackdrop}
+          onPress={() => setBuscaModalVisible(false)}
+        />
 
-        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.modalSheetWrap}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          style={styles.modalSheetWrap}
+        >
           <View style={styles.modalSheet}>
             <View style={styles.modalHeaderRow}>
               <Text style={styles.modalTitle}>Buscar cidade</Text>
-              <Pressable onPress={() => setBuscaModalVisible(false)} hitSlop={10} style={styles.modalIconBtn}>
+              <Pressable
+                onPress={() => setBuscaModalVisible(false)}
+                hitSlop={10}
+                style={styles.modalIconBtn}
+              >
                 <Ionicons name="close" size={18} color="#111" />
               </Pressable>
             </View>
@@ -666,8 +802,16 @@ export default function HomeTab() {
               onPress={() => setEstadoModalVisible(true)}
               hitSlop={8}
             >
-              <Text style={estadoSelecionado ? styles.modalSelectText : styles.modalSelectPlaceholder}>
-                {estadoSelecionado ? `${estadoSelecionado.nome} (${estadoSelecionado.sigla})` : "Selecionar UF"}
+              <Text
+                style={
+                  estadoSelecionado
+                    ? styles.modalSelectText
+                    : styles.modalSelectPlaceholder
+                }
+              >
+                {estadoSelecionado
+                  ? `${estadoSelecionado.nome} (${estadoSelecionado.sigla})`
+                  : "Selecionar UF"}
               </Text>
               <Ionicons name="chevron-down" size={18} color="#111" />
             </Pressable>
@@ -682,7 +826,11 @@ export default function HomeTab() {
                 setCidadeSugestoesVisivel(true);
               }}
               onFocus={() => setCidadeSugestoesVisivel(true)}
-              placeholder={estadoSelecionado ? "Digite para filtrar e selecione na lista" : "Selecione a UF primeiro"}
+              placeholder={
+                estadoSelecionado
+                  ? "Digite para filtrar e selecione na lista"
+                  : "Selecione a UF primeiro"
+              }
               placeholderTextColor="#999"
               style={styles.modalInput}
               editable={!!estadoSelecionado}
@@ -690,27 +838,29 @@ export default function HomeTab() {
             />
 
             {/* Sugestões */}
-            {estadoSelecionado && cidadeSugestoesVisivel && sugestoes.length > 0 && (
-              <View style={styles.suggestBox}>
-                <FlatList
-                  keyboardShouldPersistTaps="handled"
-                  data={sugestoes}
-                  keyExtractor={(i) => String(i.id)}
-                  renderItem={({ item }) => (
-                    <Pressable
-                      onPress={() => {
-                        setCidadeSelecionada(item);
-                        setCidadeInput(item.nome);
-                        setCidadeSugestoesVisivel(false);
-                      }}
-                      style={styles.suggestItem}
-                    >
-                      <Text style={styles.suggestText}>{item.nome}</Text>
-                    </Pressable>
-                  )}
-                />
-              </View>
-            )}
+            {estadoSelecionado &&
+              cidadeSugestoesVisivel &&
+              sugestoes.length > 0 && (
+                <View style={styles.suggestBox}>
+                  <FlatList
+                    keyboardShouldPersistTaps="handled"
+                    data={sugestoes}
+                    keyExtractor={(i) => String(i.id)}
+                    renderItem={({ item }) => (
+                      <Pressable
+                        onPress={() => {
+                          setCidadeSelecionada(item);
+                          setCidadeInput(item.nome);
+                          setCidadeSugestoesVisivel(false);
+                        }}
+                        style={styles.suggestItem}
+                      >
+                        <Text style={styles.suggestText}>{item.nome}</Text>
+                      </Pressable>
+                    )}
+                  />
+                </View>
+              )}
 
             {/* ajuda quando digitou mas não selecionou */}
             {!!estadoSelecionado && !!cidadeInput && !cidadeSelecionada && (
@@ -720,7 +870,10 @@ export default function HomeTab() {
             )}
 
             <View style={styles.modalRow}>
-              <Pressable style={[styles.modalBtn, styles.modalBtnGhost]} onPress={limparBusca}>
+              <Pressable
+                style={[styles.modalBtn, styles.modalBtnGhost]}
+                onPress={limparBusca}
+              >
                 <Text style={styles.modalBtnGhostText}>Limpar</Text>
               </Pressable>
 
@@ -751,7 +904,10 @@ export default function HomeTab() {
           animationType="fade"
           onRequestClose={() => setEstadoModalVisible(false)}
         >
-          <Pressable style={styles.modalBackdrop} onPress={() => setEstadoModalVisible(false)} />
+          <Pressable
+            style={styles.modalBackdrop}
+            onPress={() => setEstadoModalVisible(false)}
+          />
 
           <KeyboardAvoidingView
             behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -760,7 +916,11 @@ export default function HomeTab() {
             <View style={[styles.modalSheet, styles.modalSheetTall]}>
               <View style={styles.modalHeaderRow}>
                 <Text style={styles.modalTitle}>Selecionar UF</Text>
-                <Pressable onPress={() => setEstadoModalVisible(false)} hitSlop={10} style={styles.modalIconBtn}>
+                <Pressable
+                  onPress={() => setEstadoModalVisible(false)}
+                  hitSlop={10}
+                  style={styles.modalIconBtn}
+                >
                   <Ionicons name="close" size={18} color="#111" />
                 </Pressable>
               </View>
@@ -778,12 +938,17 @@ export default function HomeTab() {
                 data={estadosFiltrados}
                 keyExtractor={(i) => String(i.id)}
                 keyboardShouldPersistTaps="handled"
-                ItemSeparatorComponent={() => <View style={styles.modalDivider} />}
+                ItemSeparatorComponent={() => (
+                  <View style={styles.modalDivider} />
+                )}
                 renderItem={({ item }) => {
                   const active = estadoSelecionado?.id === item.id;
                   return (
                     <Pressable
-                      style={[styles.modalListItem, active && styles.modalListItemActive]}
+                      style={[
+                        styles.modalListItem,
+                        active && styles.modalListItemActive,
+                      ]}
                       onPress={() => {
                         setEstadoSelecionado(item);
                         setEstadoModalVisible(false);
@@ -797,7 +962,9 @@ export default function HomeTab() {
                       <Text style={styles.modalListItemText}>
                         {item.nome} ({item.sigla})
                       </Text>
-                      {active && <Ionicons name="checkmark" size={18} color="#5A9F78" />}
+                      {active && (
+                        <Ionicons name="checkmark" size={18} color="#5A9F78" />
+                      )}
                     </Pressable>
                   );
                 }}

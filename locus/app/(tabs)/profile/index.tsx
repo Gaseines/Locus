@@ -1,140 +1,51 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
-  View,
-  Text,
-  Pressable,
-  StyleSheet,
-  ActivityIndicator,
-  Alert,
-  ScrollView,
+  View, Text, Pressable, ActivityIndicator, Alert, ScrollView,
 } from "react-native";
-import { signOut } from "firebase/auth";
-import { doc, onSnapshot } from "firebase/firestore";
 import { router } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 
-import { auth, db } from "@/src/firebase";
-
-type Funcoes = { comprador?: boolean; vendedor?: boolean };
-
-type Preferencias = {
-  cidade?: string;
-  uf?: string;
-  estadoNome?: string | null;
-  idEstado?: number | null;
-  idMunicipio?: number | null;
-};
-
-type UsuarioDoc = {
-  firstName?: string;
-  lastName?: string;
-  fullName?: string;
-  phone?: string | null;
-  email?: string;
-
-  primeiroNome?: string;
-  sobrenome?: string;
-  nomeCompleto?: string;
-  telefone?: string | null;
-
-  funcoes?: Funcoes;
-  preferencias?: Preferencias;
-  onboardingConcluido?: boolean;
-  onboardingPulado?: boolean;
-};
+import { supabase } from "@/src/supabase";
+import { subscribeUsuario, Usuario, signOutUser } from "@/src/services/usuariosSupa";
+import { styles } from "./index.styles";
 
 export default function ProfileTab() {
   const [loading, setLoading] = useState(true);
-  const [usuario, setUsuario] = useState<UsuarioDoc | null>(null);
-
-  const uid = auth.currentUser?.uid;
-  const emailAuth = auth.currentUser?.email ?? "";
+  const [usuario, setUsuario] = useState<Usuario | null>(null);
 
   useEffect(() => {
-    if (!uid) {
-      setUsuario(null);
-      setLoading(false);
-      return;
-    }
+    let unsub: (() => void) | null = null;
 
-    const ref = doc(db, "usuarios", uid);
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user) { setLoading(false); return; }
 
-    const unsub = onSnapshot(
-      ref,
-      (snap) => {
+      unsub = subscribeUsuario(user.id, (u) => {
+        setUsuario(u);
         setLoading(false);
-        if (snap.exists()) setUsuario(snap.data() as UsuarioDoc);
-        else setUsuario({ email: emailAuth });
-      },
-      (err) => {
-        setLoading(false);
-        Alert.alert(
-          "Erro",
-          err?.message ?? "Não foi possível carregar seu perfil.",
-        );
-      },
-    );
+      });
+    });
 
-    return () => unsub();
-  }, [uid, emailAuth]);
+    return () => { unsub?.(); };
+  }, []);
 
   const nomeExibicao = useMemo(() => {
-    const n =
-      usuario?.fullName ||
-      usuario?.nomeCompleto ||
-      [
-        usuario?.firstName ?? usuario?.primeiroNome,
-        usuario?.lastName ?? usuario?.sobrenome,
-      ]
-        .filter(Boolean)
-        .join(" ");
-    return n?.trim() ? n : "Usuário";
+    if (!usuario) return "Usuário";
+    const nome = [usuario.primeiro_nome, usuario.sobrenome].filter(Boolean).join(" ");
+    return nome.trim() || "Usuário";
   }, [usuario]);
 
-  const telefoneExibicao = useMemo(() => {
-    const t = usuario?.phone ?? usuario?.telefone ?? null;
-    return t ? String(t) : "Não informado";
-  }, [usuario]);
-
-  const emailExibicao = useMemo(
-    () => usuario?.email ?? emailAuth ?? "Não informado",
-    [usuario, emailAuth],
-  );
-
-  const funcoesExibicao = useMemo(() => {
-    const f = usuario?.funcoes;
-    const comprador = !!f?.comprador;
-    const vendedor = !!f?.vendedor;
-    if (comprador && vendedor) return "Comprador e Vendedor";
-    if (comprador) return "Comprador";
-    if (vendedor) return "Vendedor";
-    return "Não definido";
-  }, [usuario]);
-
-  const localExibicao = useMemo(() => {
-    const p = usuario?.preferencias;
-    const cidade = p?.cidade?.trim();
-    const uf = p?.uf?.trim()?.toUpperCase();
-    if (cidade && uf) return `${cidade} - ${uf}`;
-    if (cidade) return cidade;
-    if (uf) return uf;
-    return "Não definido";
-  }, [usuario]);
+  const isVendedor = !!usuario?.funcao_vendedor;
 
   const handleLogout = async () => {
     try {
-      await signOut(auth);
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
     } catch (e: any) {
       Alert.alert("Erro", e?.message ?? "Não foi possível sair.");
     }
   };
 
-  if (loading) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" />
-      </View>
-    );
-  }
+  if (loading) return <View style={styles.center}><ActivityIndicator size="large" /></View>;
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -147,20 +58,32 @@ export default function ProfileTab() {
         <Text style={styles.value}>{nomeExibicao}</Text>
 
         <Text style={[styles.label, { marginTop: 12 }]}>Email</Text>
-        <Text style={styles.value}>{emailExibicao}</Text>
+        <Text style={styles.value}>{usuario?.email ?? "Não informado"}</Text>
 
         <Text style={[styles.label, { marginTop: 12 }]}>WhatsApp</Text>
-        <Text style={styles.value}>{telefoneExibicao}</Text>
+        <Text style={styles.value}>{usuario?.telefone ?? "Não informado"}</Text>
       </View>
 
       <View style={styles.card}>
         <Text style={styles.sectionTitle}>Especificações para o app</Text>
 
         <Text style={styles.label}>Intenção</Text>
-        <Text style={styles.value}>{funcoesExibicao}</Text>
+        <Text style={styles.value}>
+          {usuario?.funcao_comprador && usuario?.funcao_vendedor
+            ? "Comprador e Vendedor"
+            : usuario?.funcao_comprador
+            ? "Comprador"
+            : usuario?.funcao_vendedor
+            ? "Vendedor"
+            : "Não definido"}
+        </Text>
 
         <Text style={[styles.label, { marginTop: 12 }]}>Residência</Text>
-        <Text style={styles.value}>{localExibicao}</Text>
+        <Text style={styles.value}>
+          {usuario?.pref_cidade && usuario?.pref_uf
+            ? `${usuario.pref_cidade} - ${usuario.pref_uf}`
+            : usuario?.pref_cidade ?? usuario?.pref_uf ?? "Não definido"}
+        </Text>
 
         <Pressable
           style={[styles.primaryBtn, { marginTop: 14 }]}
@@ -170,22 +93,28 @@ export default function ProfileTab() {
         </Pressable>
       </View>
 
-      <View style={styles.card}>
-        <Pressable
-          style={{
-            height: 46,
-            borderRadius: 10,
-            alignItems: "center",
-            justifyContent: "center",
-            backgroundColor: "#5a9f78",
-          }}
-          onPress={() => router.push("/(tabs)/profile/novo-imovel")}
-        >
-          <Text style={{ color: "#fff", fontWeight: "900" }}>
-            Anunciar imóvel
-          </Text>
-        </Pressable>
-      </View>
+      {isVendedor ? (
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>Seus imóveis</Text>
+          <Pressable style={styles.menuItem} onPress={() => router.push("/(tabs)/profile/meus-imoveis")}>
+            <Ionicons name="home-outline" size={20} color="#5A9F78" />
+            <Text style={styles.menuItemText}>Meus imóveis</Text>
+            <Ionicons name="chevron-forward" size={16} color="#ccc" />
+          </Pressable>
+          <View style={styles.divider} />
+          <Pressable style={styles.menuItem} onPress={() => router.push("/(tabs)/profile/novo-imovel")}>
+            <Ionicons name="add-circle-outline" size={20} color="#5A9F78" />
+            <Text style={styles.menuItemText}>Anunciar novo imóvel</Text>
+            <Ionicons name="chevron-forward" size={16} color="#ccc" />
+          </Pressable>
+        </View>
+      ) : (
+        <View style={styles.card}>
+          <Pressable style={styles.primaryBtn} onPress={() => router.push("/(tabs)/profile/novo-imovel")}>
+            <Text style={styles.primaryText}>Anunciar imóvel</Text>
+          </Pressable>
+        </View>
+      )}
 
       <Pressable style={styles.logoutButton} onPress={handleLogout}>
         <Text style={styles.logoutText}>Sair</Text>
@@ -193,44 +122,3 @@ export default function ProfileTab() {
     </ScrollView>
   );
 }
-
-const styles = StyleSheet.create({
-  center: { flex: 1, alignItems: "center", justifyContent: "center" },
-  container: { padding: 24, paddingBottom: 40, gap: 14 },
-  title: { fontSize: 22, fontWeight: "800" },
-
-  card: {
-    borderWidth: 1,
-    borderColor: "#E5E5E5",
-    backgroundColor: "#FFF",
-    borderRadius: 12,
-    padding: 14,
-  },
-  sectionTitle: {
-    fontSize: 14,
-    fontWeight: "800",
-    marginBottom: 10,
-    color: "#111",
-  },
-
-  label: { fontSize: 12, opacity: 0.7 },
-  value: { fontSize: 16, fontWeight: "700", marginTop: 4 },
-
-  primaryBtn: {
-    height: 46,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#5A9F78",
-  },
-  primaryText: { fontWeight: "800", color: "#fff" },
-
-  logoutButton: {
-    height: 48,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#EAEAEA",
-  },
-  logoutText: { fontWeight: "800", color: "#111" },
-});
